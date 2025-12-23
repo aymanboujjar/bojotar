@@ -1,0 +1,224 @@
+.app-container {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+}
+
+.avatar-section {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  background: radial-gradient(circle at center, rgba(100, 108, 255, 0.1) 0%, transparent 70%);
+}
+
+.tts-section {
+  width: 450px;
+  min-width: 400px;
+  background: rgba(26, 26, 26, 0.95);
+  backdrop-filter: blur(20px);
+  border-left: 1px solid rgba(100, 108, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  padding: 40px;
+  overflow-y: auto;
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3);
+}
+
+.tts-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.section-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  margin: 0 0 30px 0;
+  background: linear-gradient(135deg, #646cff 0%, #535bf2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.tts-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.form-group textarea {
+  width: 100%;
+  padding: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background-color: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.95);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+  resize: vertical;
+  box-sizing: border-box;
+  transition: all 0.3s ease;
+}
+
+.form-group textarea:focus {
+  outline: none;
+  border-color: #646cff;
+  background-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 4px rgba(100, 108, 255, 0.1);
+}
+
+.form-group textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.form-group textarea::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.char-count {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: right;
+  margin-top: 8px;
+  font-weight: 500;
+}
+
+.generate-button {
+  width: 100%;
+  padding: 16px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #646cff 0%, #535bf2 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: 0 4px 15px rgba(100, 108, 255, 0.3);
+}
+
+.generate-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(100, 108, 255, 0.4);
+}
+
+.generate-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.generate-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+.error-message {
+  padding: 14px 16px;
+  background-color: rgba(255, 59, 48, 0.15);
+  border: 1px solid rgba(255, 59, 48, 0.3);
+  border-radius: 10px;
+  color: #ff6b6b;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.success-message {
+  padding: 14px 16px;
+  background-color: rgba(52, 199, 89, 0.15);
+  border: 1px solid rgba(52, 199, 89, 0.3);
+  border-radius: 10px;
+  color: #51cf66;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.audio-container {
+  margin-top: 12px;
+  width: 100%;
+}
+
+.generated-audio {
+  width: 100%;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Responsive design */
+@media (max-width: 1024px) {
+  .app-container {
+    flex-direction: column;
+  }
+
+  .avatar-section {
+    flex: 0 0 50vh;
+  }
+
+  .tts-section {
+    width: 100%;
+    min-width: unset;
+    border-left: none;
+    border-top: 1px solid rgba(100, 108, 255, 0.2);
+  }
+}
+
+@media (max-width: 768px) {
+  .tts-section {
+    padding: 24px;
+  }
+
+  .section-title {
+    font-size: 24px;
+    margin-bottom: 20px;
+  }
+}
