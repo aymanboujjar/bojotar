@@ -713,123 +713,13 @@ function AppContent() {
       <div className="tts-section">
         <div className="tts-container">
           <h2 className="section-title">Chat with AI</h2>
-          
-          {/* TEST LIP SYNC BUTTONS */}
-          <div style={{ marginBottom: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px' }}>
-            {/* Tzaghrita Test */}
-            <div style={{ padding: '15px', backgroundColor: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '8px' }}>
-              <h3 style={{ marginTop: 0, marginBottom: '10px', color: '#92400e', fontSize: '16px' }}>
-                🎬 Test 1: Tzaghrita
-              </h3>
-              <p style={{ marginBottom: '15px', color: '#78350f', fontSize: '12px' }}>
-                tzaghrita.json & tzaghrita.wav
-              </p>
-              <button 
-                type="button"
-                onClick={testHardcodedLipSync}
-                disabled={isTestingLipSync}
-                style={{
-                  padding: '10px 20px',
-                  backgroundColor: isTestingLipSync ? '#d1d5db' : '#f59e0b',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '14px',
-                  fontWeight: 'bold',
-                  cursor: isTestingLipSync ? 'not-allowed' : 'pointer',
-                  width: '100%'
-                }}
-              >
-                {isTestingLipSync ? 'Loading...' : '🎬 Play'}
-              </button>
-              <div ref={testAudioContainerRef} style={{ marginTop: '15px' }}></div>
-            </div>
-
-            {/* Thanks Test */}
-            <div style={{ padding: '15px', backgroundColor: '#dbeafe', border: '2px solid #3b82f6', borderRadius: '8px' }}>
-              <h3 style={{ marginTop: 0, marginBottom: '10px', color: '#1e40af', fontSize: '16px' }}>
-                🎬 Test 2: Thanks
-              </h3>
-              <p style={{ marginBottom: '15px', color: '#1e3a8a', fontSize: '12px' }}>
-                thanks.json & thanks.wav
-              </p>
-              <button 
-                type="button"
-                onClick={testThanksLipSync}
-                disabled={isTestingThanks}
-                style={{
-                  padding: '10px 20px',
-                  backgroundColor: isTestingThanks ? '#d1d5db' : '#3b82f6',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '14px',
-                  fontWeight: 'bold',
-                  cursor: isTestingThanks ? 'not-allowed' : 'pointer',
-                  width: '100%'
-                }}
-              >
-                {isTestingThanks ? 'Loading...' : '🎬 Play'}
-              </button>
-              <div ref={thanksAudioContainerRef} style={{ marginTop: '15px' }}></div>
-            </div>
-
-            {/* Thanks_1 Test */}
-            <div style={{ padding: '15px', backgroundColor: '#fce7f3', border: '2px solid #ec4899', borderRadius: '8px' }}>
-              <h3 style={{ marginTop: 0, marginBottom: '10px', color: '#9f1239', fontSize: '16px' }}>
-                🎬 Test 3: Thanks_1
-              </h3>
-              <p style={{ marginBottom: '15px', color: '#831843', fontSize: '12px' }}>
-                thanks_1.json & thanks_1.wav
-              </p>
-              <button 
-                type="button"
-                onClick={testThanks1LipSync}
-                disabled={isTestingThanks1}
-                style={{
-                  padding: '10px 20px',
-                  backgroundColor: isTestingThanks1 ? '#d1d5db' : '#ec4899',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '14px',
-                  fontWeight: 'bold',
-                  cursor: isTestingThanks1 ? 'not-allowed' : 'pointer',
-                  width: '100%'
-                }}
-              >
-                {isTestingThanks1 ? 'Loading...' : '🎬 Play'}
-              </button>
-              <div ref={thanks1AudioContainerRef} style={{ marginTop: '15px' }}></div>
-            </div>
-          </div>
+ 
           
           <form onSubmit={handleSubmit} className="tts-form">
             <div className="form-group">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <label htmlFor="text-input" style={{ marginBottom: 0 }}>Enter your question:</label>
-                {conversationHistory.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={clearConversation}
-                    disabled={loading || isRecording || isTranscribing}
-                    style={{
-                      padding: '6px 12px',
-                      backgroundColor: 'rgba(255, 59, 48, 0.2)',
-                      color: '#ff6b6b',
-                      border: '1px solid rgba(255, 59, 48, 0.3)',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      cursor: (loading || isRecording || isTranscribing) ? 'not-allowed' : 'pointer',
-                      opacity: (loading || isRecording || isTranscribing) ? 0.5 : 1,
-                      transition: 'all 0.2s'
-                    }}
-                    title={`Clear conversation history (${conversationHistory.length} messages)`}
-                  >
-                    🗑️ Clear History ({conversationHistory.length / 2})
-                  </button>
-                )}
+            
               </div>
               <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                 <textarea

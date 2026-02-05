@@ -268,55 +268,12 @@ export function useLipSync(headRef) {
     }
   }, [lipSyncData, headRef, morphTargetDictionary]) // Re-run when lip sync data, head ref, or dictionary changes
 
+  // NOTE: Main lip sync animation is handled in Avatar.jsx useFrame
+  // This hook only handles setup and caching of the dictionary
   useFrame(() => {
-    if (!headRef.current) return
-
-    const mesh = headRef.current
-    
-    // Use cached dictionary instead of mesh's dictionary (which gets reset by Three.js/mixer)
-    if (!cachedDictionaryRef.current) {
-      return
-    }
-
-    // Use cached dictionary that won't be reset by external code
-    const dict = cachedDictionaryRef.current
-    
-    // Ensure morphTargetInfluences exists and matches dictionary size
-    if (!mesh.morphTargetInfluences) {
-      const morphCount = Object.keys(dict).length
-      mesh.morphTargetInfluences = new Array(morphCount).fill(0)
-      console.log('✅ Initialized morphTargetInfluences array:', morphCount)
-    }
-
-    const infl = mesh.morphTargetInfluences
-
-    const mapping = detectedMappingRef.current || corresponding
-
-    // Debug logging (only log occasionally to avoid spam)
-   
-
-    // If no audio or no lip sync data, keep mouth closed
-    if (!audioElement || !mouthCuesRef.current || mouthCuesRef.current.length === 0) {
-      const silenceViseme = mapping.X || mapping.A
-      if (silenceViseme) {
-        const index = dict[silenceViseme]
-        if (index !== undefined && index < infl.length) {
-          infl[index] = THREE.MathUtils.lerp(infl[index] || 0, 1, 0.2)
-        }
-      }
-      // Reset all other visemes
-      Object.values(mapping).forEach((visemeName) => {
-        if (visemeName !== silenceViseme) {
-          const idx = dict[visemeName]
-          if (idx !== undefined && idx < infl.length) {
-            infl[idx] = THREE.MathUtils.lerp(infl[idx] || 0, 0, 0.1)
-          }
-        }
-      })
-      return
-    }
-
-    // Get current audio time
+    // Lip sync animation is now handled directly in Avatar.jsx
+    // This prevents conflicts and ensures proper timing after mixer.update()
+    return
     const currentAudioTime = audioElement.currentTime || 0
 
     // Check if audio is playing

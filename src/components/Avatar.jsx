@@ -652,62 +652,256 @@ export default function Avatar() {
             mixerRef.current.update(clampedDelta)
         }
         
-        // ===== DIRECT LIP SYNC - Natural talking animation =====
-        // Apply to ALL mouth meshes for combined effect
-        scene.traverse((obj) => {
-            if ((obj.isSkinnedMesh || obj.isMesh) && obj.morphTargetInfluences && obj.morphTargetInfluences.length > 0) {
-                const infl = obj.morphTargetInfluences
-                const dict = obj.morphTargetDictionary || {}
-                
-                // Find indices
-                const hasStringKeys = Object.keys(dict).some(k => isNaN(k))
-                let mouthOpenIdx = hasStringKeys ? dict['mouthOpen'] : 0
-                let jawOpenIdx = hasStringKeys ? dict['jawOpen'] : (infl.length > 50 ? 49 : 16)
-                
-                // Check if audio is playing
-                if (audioElement && !audioElement.paused && !audioElement.ended) {
-                    const currentTime = audioElement.currentTime || 0
-                    
-                    // NATURAL talking animation - small, realistic movements
-                    // Use multiple sine waves for organic movement
-                    const wave1 = Math.sin(currentTime * 12) * 0.5 + 0.5 // 0 to 1
-                    const wave2 = Math.sin(currentTime * 18) * 0.5 + 0.5 // Faster variation
-                    const combined = (wave1 * 0.7 + wave2 * 0.3) // Blend waves
-                    
-                    // NATURAL values - small movements like real talking (0.1 to 0.35 range)
-                    const mouthValue = 0.1 + (combined * 0.25) // 0.1 to 0.35 - subtle open/close
-                    const jawValue = 0.05 + (combined * 0.15) // 0.05 to 0.2 - subtle jaw movement
-                    
-                    // Apply natural mouth movement
-                    if (mouthOpenIdx !== undefined && mouthOpenIdx < infl.length) {
-                        infl[mouthOpenIdx] = mouthValue
-                    }
-                    if (jawOpenIdx !== undefined && jawOpenIdx < infl.length) {
-                        infl[jawOpenIdx] = jawValue
-                    }
-                    // Also set index 0 (mouthOpen)
-                    if (infl.length > 0) {
-                        infl[0] = mouthValue
-                    }
-                } else {
-                    // CLOSE MOUTH when audio stops - reset to 0
-                    if (mouthOpenIdx !== undefined && mouthOpenIdx < infl.length) {
-                        // Smooth closing
-                        infl[mouthOpenIdx] = Math.max(0, (infl[mouthOpenIdx] || 0) * 0.8)
-                    }
-                    if (jawOpenIdx !== undefined && jawOpenIdx < infl.length) {
-                        infl[jawOpenIdx] = Math.max(0, (infl[jawOpenIdx] || 0) * 0.8)
-                    }
-                    if (infl.length > 0) {
-                        infl[0] = Math.max(0, (infl[0] || 0) * 0.8)
+        // ===== REAL LIP SYNC - Using actual Rhubarb phoneme data =====
+        // This syncs mouth movements with actual speech sounds from the audio
+        const isAudioPlaying = audioElement && !audioElement.paused && !audioElement.ended
+        const hasLipSyncData = lipSyncData && lipSyncData.mouthCues && lipSyncData.mouthCues.length > 0
+        
+        if (isAudioPlaying) {
+            const currentTime = audioElement.currentTime || 0
+            
+            // Find the current phoneme based on audio time (if lip sync data exists)
+            let currentCue = null
+            if (hasLipSyncData) {
+                const mouthCues = lipSyncData.mouthCues
+                for (let i = 0; i < mouthCues.length; i++) {
+                    if (currentTime >= mouthCues[i].start && currentTime <= mouthCues[i].end) {
+                        currentCue = mouthCues[i]
+                        break
                     }
                 }
             }
-        })
+            
+            // Rhubarb phoneme to mouth shape mapping
+            // A: "ah" sound - jaw open, mouth open
+            // B: closed lips for "B", "M", "P" sounds
+            // C: "eh" sound - mouth slightly open, wide
+            // D: "ah" sound variant
+            // E: "ee" sound - wide mouth, lips pulled back
+            // F: "f"/"v" sound - lower lip under upper teeth
+            // G: "oh" sound - rounded lips
+            // H: "L" sound - tongue behind teeth
+            // X: silence/neutral
+            
+            scene.traverse((obj) => {
+                // ONLY apply to mouth-related meshes - skip eye meshes!
+                const meshName = (obj.name || '').toLowerCase()
+                const isMouthMesh = meshName.includes('head') || 
+                                    meshName.includes('teeth') || 
+                                    meshName.includes('tongue') ||
+                                    meshName.includes('face')
+                const isEyeMesh = meshName.includes('eye') || meshName.includes('lash')
+                
+                // Skip if it's an eye mesh or not a mouth mesh
+                if (isEyeMesh || !isMouthMesh) return
+                
+                if ((obj.isSkinnedMesh || obj.isMesh) && obj.morphTargetInfluences && obj.morphTargetInfluences.length > 0) {
+                    const infl = obj.morphTargetInfluences
+                    const dict = obj.morphTargetDictionary || {}
+                    const hasStringKeys = Object.keys(dict).some(k => isNaN(k))
+                    
+                    // Get morph target indices
+                    const getIdx = (name, fallback) => {
+                        if (hasStringKeys && dict[name] !== undefined) return dict[name]
+                        return fallback < infl.length ? fallback : undefined
+                    }
+                    
+                    // Mouth shape indices
+                    const mouthOpenIdx = getIdx('mouthOpen', 0)
+                    const jawOpenIdx = getIdx('jawOpen', 49)
+                    const visemePPIdx = getIdx('viseme_PP', 2)
+                    const visemeFFIdx = getIdx('viseme_FF', 3)
+                    const visemeTHIdx = getIdx('viseme_TH', 4)
+                    const visemeOIdx = getIdx('viseme_O', 65)
+                    const visemeEIdx = getIdx('viseme_E', 63)
+                    const visemeAAIdx = getIdx('viseme_aa', 62)
+                    const visemeIIdx = getIdx('viseme_I', 64)
+                    const visemeUIdx = getIdx('viseme_U', 66)
+                    const visemeKKIdx = getIdx('viseme_kk', 57)
+                    const visemeCHIdx = getIdx('viseme_CH', 58)
+                    const visemeSSIdx = getIdx('viseme_SS', 59)
+                    const visemeNNIdx = getIdx('viseme_nn', 60)
+                    const visemeRRIdx = getIdx('viseme_RR', 61)
+                    const visemeDDIdx = getIdx('viseme_DD', 56)
+                    
+                    // Smooth interpolation
+                    const lerp = (current, target, speed) => current + (target - current) * speed
+                    const smoothSpeed = 0.25 // Smooth but responsive
+                    
+                    // Reset all targets
+                    let targets = {
+                        mouthOpen: 0, jaw: 0, PP: 0, FF: 0, TH: 0, O: 0, E: 0, AA: 0, I: 0, U: 0, KK: 0, CH: 0, SS: 0, NN: 0, RR: 0, DD: 0
+                    }
+                    
+                    // Set targets based on current phoneme
+                    if (currentCue) {
+                        const phoneme = currentCue.value
+                        
+                        switch (phoneme) {
+                            case 'A': // "ah" - jaw drop, mouth open
+                                targets.mouthOpen = 0.4
+                                targets.jaw = 0.35
+                                targets.AA = 0.5
+                                break
+                            case 'B': // closed lips - M, B, P
+                                targets.mouthOpen = 0.05
+                                targets.jaw = 0.05
+                                targets.PP = 0.6
+                                break
+                            case 'C': // "eh" - slight open, wide
+                                targets.mouthOpen = 0.25
+                                targets.jaw = 0.15
+                                targets.E = 0.4
+                                break
+                            case 'D': // "ah" variant
+                                targets.mouthOpen = 0.35
+                                targets.jaw = 0.3
+                                targets.AA = 0.45
+                                targets.DD = 0.3
+                                break
+                            case 'E': // "ee" - wide, teeth showing
+                                targets.mouthOpen = 0.15
+                                targets.jaw = 0.1
+                                targets.E = 0.5
+                                targets.I = 0.3
+                                break
+                            case 'F': // "f/v" - lower lip under teeth
+                                targets.mouthOpen = 0.1
+                                targets.jaw = 0.08
+                                targets.FF = 0.6
+                                break
+                            case 'G': // "oh" - rounded lips
+                                targets.mouthOpen = 0.3
+                                targets.jaw = 0.25
+                                targets.O = 0.5
+                                targets.U = 0.2
+                                break
+                            case 'H': // "L" sound
+                                targets.mouthOpen = 0.2
+                                targets.jaw = 0.15
+                                targets.TH = 0.3
+                                targets.NN = 0.2
+                                break
+                            case 'X': // silence/neutral
+                            default:
+                                targets.mouthOpen = 0.02
+                                targets.jaw = 0.01
+                                break
+                        }
+                    } else {
+                        // FALLBACK: No lip sync data - use natural talking animation
+                        // Create varied mouth movement based on time
+                        const wave1 = Math.sin(currentTime * 10) * 0.5 + 0.5
+                        const wave2 = Math.sin(currentTime * 15) * 0.5 + 0.5
+                        const wave3 = Math.sin(currentTime * 7) * 0.5 + 0.5
+                        
+                        // Cycle through mouth shapes naturally
+                        const phase = (currentTime * 3) % 4
+                        
+                        if (phase < 1) {
+                            // Open mouth
+                            targets.mouthOpen = 0.2 + wave1 * 0.15
+                            targets.jaw = 0.15 + wave2 * 0.1
+                            targets.AA = 0.3 * wave1
+                        } else if (phase < 2) {
+                            // Wide mouth (E sound)
+                            targets.mouthOpen = 0.15 + wave2 * 0.1
+                            targets.E = 0.35 * wave2
+                        } else if (phase < 3) {
+                            // Round mouth (O sound)
+                            targets.mouthOpen = 0.2 + wave1 * 0.1
+                            targets.O = 0.3 * wave1
+                        } else {
+                            // Slight open
+                            targets.mouthOpen = 0.1 + wave3 * 0.15
+                            targets.jaw = 0.1 * wave3
+                        }
+                    }
+                    
+                    // Apply with smooth interpolation
+                    const applySmooth = (idx, target) => {
+                        if (idx !== undefined && idx < infl.length) {
+                            infl[idx] = lerp(infl[idx] || 0, target, smoothSpeed)
+                        }
+                    }
+                    
+                    applySmooth(mouthOpenIdx, targets.mouthOpen)
+                    applySmooth(jawOpenIdx, targets.jaw)
+                    applySmooth(visemePPIdx, targets.PP)
+                    applySmooth(visemeFFIdx, targets.FF)
+                    applySmooth(visemeTHIdx, targets.TH)
+                    applySmooth(visemeOIdx, targets.O)
+                    applySmooth(visemeEIdx, targets.E)
+                    applySmooth(visemeAAIdx, targets.AA)
+                    applySmooth(visemeIIdx, targets.I)
+                    applySmooth(visemeUIdx, targets.U)
+                    applySmooth(visemeKKIdx, targets.KK)
+                    applySmooth(visemeCHIdx, targets.CH)
+                    applySmooth(visemeSSIdx, targets.SS)
+                    applySmooth(visemeNNIdx, targets.NN)
+                    applySmooth(visemeRRIdx, targets.RR)
+                    applySmooth(visemeDDIdx, targets.DD)
+                    
+                    // Also set index 0
+                    if (infl.length > 0) {
+                        infl[0] = lerp(infl[0] || 0, targets.mouthOpen, smoothSpeed)
+                    }
+                }
+            })
+        } else if (!audioElement || audioElement.paused || audioElement.ended) {
+            // Smoothly close mouth when not speaking
+            scene.traverse((obj) => {
+                // ONLY apply to mouth-related meshes - skip eye meshes!
+                const meshName = (obj.name || '').toLowerCase()
+                const isMouthMesh = meshName.includes('head') || 
+                                    meshName.includes('teeth') || 
+                                    meshName.includes('tongue') ||
+                                    meshName.includes('face')
+                const isEyeMesh = meshName.includes('eye') || meshName.includes('lash')
+                
+                // Skip if it's an eye mesh or not a mouth mesh
+                if (isEyeMesh || !isMouthMesh) return
+                
+                if ((obj.isSkinnedMesh || obj.isMesh) && obj.morphTargetInfluences && obj.morphTargetInfluences.length > 0) {
+                    const infl = obj.morphTargetInfluences
+                    const dict = obj.morphTargetDictionary || {}
+                    const hasStringKeys = Object.keys(dict).some(k => isNaN(k))
+                    
+                    // Only reset MOUTH-related morph targets, not eyes
+                    const mouthIndices = []
+                    
+                    if (hasStringKeys) {
+                        // Get only mouth/viseme related indices
+                        Object.entries(dict).forEach(([name, idx]) => {
+                            const lowerName = name.toLowerCase()
+                            if (lowerName.includes('mouth') || 
+                                lowerName.includes('viseme') || 
+                                lowerName.includes('jaw') ||
+                                lowerName.includes('lip') ||
+                                lowerName.includes('tongue')) {
+                                mouthIndices.push(idx)
+                            }
+                        })
+                    } else {
+                        // Fallback: only reset first few indices for Teeth/Tongue meshes
+                        for (let i = 0; i < Math.min(infl.length, 20); i++) {
+                            mouthIndices.push(i)
+                        }
+                    }
+                    
+                    // Only reset mouth-related indices
+                    mouthIndices.forEach(i => {
+                        if (i < infl.length && infl[i] > 0.001) {
+                            infl[i] = infl[i] * 0.85 // Smooth fade to closed
+                        }
+                    })
+                }
+            })
+        }
     })
 
-    // DISABLED: useLipSync hook - using direct lip sync above instead
-    // useLipSync(headRef)
+    // Re-enable useLipSync hook for phoneme-based lip sync
+    useLipSync(headRef)
 
     return (
         <>

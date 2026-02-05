@@ -1,0 +1,40 @@
+{
+  "metadata": {
+    "soundFile": "C:\\Users\\Ayman Boujjar\\Desktop\\bojotar\\public\\good_day_to_you_i_am_ada_lovelace_how_delightful.wav",
+    "duration": 4.08
+  },
+  "mouthCues": [
+    { "start": 0.00, "end": 0.14, "value": "X" },
+    { "start": 0.14, "end": 0.20, "value": "B" },
+    { "start": 0.20, "end": 0.33, "value": "C" },
+    { "start": 0.33, "end": 0.41, "value": "A" },
+    { "start": 0.41, "end": 0.79, "value": "F" },
+    { "start": 0.79, "end": 1.02, "value": "B" },
+    { "start": 1.02, "end": 1.15, "value": "C" },
+    { "start": 1.15, "end": 1.23, "value": "A" },
+    { "start": 1.23, "end": 1.28, "value": "C" },
+    { "start": 1.28, "end": 1.33, "value": "B" },
+    { "start": 1.33, "end": 1.47, "value": "C" },
+    { "start": 1.47, "end": 1.54, "value": "H" },
+    { "start": 1.54, "end": 1.61, "value": "C" },
+    { "start": 1.61, "end": 1.68, "value": "G" },
+    { "start": 1.68, "end": 1.75, "value": "C" },
+    { "start": 1.75, "end": 2.22, "value": "B" },
+    { "start": 2.22, "end": 2.26, "value": "C" },
+    { "start": 2.26, "end": 2.44, "value": "B" },
+    { "start": 2.44, "end": 2.51, "value": "H" },
+    { "start": 2.51, "end": 2.58, "value": "C" },
+    { "start": 2.58, "end": 2.65, "value": "B" },
+    { "start": 2.65, "end": 2.72, "value": "G" },
+    { "start": 2.72, "end": 2.86, "value": "F" },
+    { "start": 2.86, "end": 2.94, "value": "A" },
+    { "start": 2.94, "end": 3.21, "value": "F" },
+    { "start": 3.21, "end": 3.28, "value": "B" },
+    { "start": 3.28, "end": 3.35, "value": "F" },
+    { "start": 3.35, "end": 3.42, "value": "C" },
+    { "start": 3.42, "end": 3.49, "value": "B" },
+    { "start": 3.49, "end": 3.63, "value": "C" },
+    { "start": 3.63, "end": 3.77, "value": "B" },
+    { "start": 3.77, "end": 4.08, "value": "X" }
+  ]
+}
