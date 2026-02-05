@@ -73,25 +73,25 @@ function AppContent() {
       audio.controls = true
       audio.style.width = '100%'
       audio.style.marginTop = '12px'
-      
+
       return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('Audio loading timeout'))
         }, 10000) // 10 second timeout
-        
+
         audio.addEventListener('loadeddata', () => {
           clearTimeout(timeout)
           resolve(audio)
         })
-        
+
         audio.addEventListener('error', (event) => {
           clearTimeout(timeout)
-          const errorMsg = audio.error 
+          const errorMsg = audio.error
             ? `Audio load error: ${audio.error.code} - ${audio.error.message || 'Unknown error'}`
             : 'Failed to load audio file'
           reject(new Error(errorMsg))
         })
-        
+
         audio.load()
       })
     } catch (error) {
@@ -110,24 +110,24 @@ function AppContent() {
       // Limit text length to prevent excessive character usage (max 500 characters)
       const MAX_TEXT_LENGTH = 500
       const originalText = text
-      const truncatedText = text.length > MAX_TEXT_LENGTH 
+      const truncatedText = text.length > MAX_TEXT_LENGTH
         ? text.substring(0, MAX_TEXT_LENGTH) + '...'
         : text
-      
+
       if (text.length > MAX_TEXT_LENGTH) {
         console.warn(`⚠️ Text truncated from ${text.length} to ${MAX_TEXT_LENGTH} characters to save API credits`)
       }
-      
+
       const audioFilename = sanitizeFilename(truncatedText)
-      
+
       // Check if audio file already exists (caching)
       console.log('🔍 Checking for existing audio file...')
       const audioExists = await checkAudioExists(audioFilename)
-      
+
       let audio
       let audioBlob = null
       let useExistingAudio = false
-      
+
       if (audioExists) {
         try {
           console.log('✅ Found existing audio file, reusing it (saving API credits)')
@@ -141,11 +141,11 @@ function AppContent() {
           useExistingAudio = false
         }
       }
-      
+
       if (!useExistingAudio) {
         console.log('🎤 Generating new speech with ElevenLabs API...')
         console.log(`📝 Text length: ${truncatedText.length} characters`)
-        
+
         // Generate speech with ElevenLabs
         audioBlob = await generateSpeechWithElevenLabs(truncatedText, {
           voiceId: '21m00Tcm4TlvDq8ikWAM', // Rachel voice (female) - natural and clear
@@ -154,16 +154,16 @@ function AppContent() {
           style: 0.0,
           useSpeakerBoost: true
         })
-        
+
         console.log('✅ Speech generated successfully, size:', audioBlob.size, 'bytes')
-        
+
         // Create audio element from the blob
         const audioUrl = URL.createObjectURL(audioBlob)
         audio = new Audio(audioUrl)
         audio.controls = true
         audio.style.width = '100%'
         audio.style.marginTop = '12px'
-        
+
         audio.addEventListener('ended', () => {
           URL.revokeObjectURL(audioUrl)
         })
@@ -174,7 +174,7 @@ function AppContent() {
       audioContainer.className = 'audio-container'
       audioContainer.innerHTML = ''
       audioContainer.appendChild(audio)
-      
+
       const answerDisplay = document.querySelector('.answer-display')
       if (answerDisplay && answerDisplay.parentNode) {
         const existingContainer = answerDisplay.parentNode.querySelector('.audio-container')
@@ -193,11 +193,11 @@ function AppContent() {
         setAnimationType('thanks')
         console.log('🎬 Animation set to: default (Offensive Idle)')
       }
-      
+
       // Save audio file and wait for lip sync JSON generation (only if new audio was generated)
       if (audioBlob) {
         console.log('💾 Saving audio file and generating lip sync data...')
-        
+
         // Save audio file first (this triggers Rhubarb processing on server)
         await saveAudioFile(audioBlob, audioFilename).catch((saveError) => {
           console.warn('⚠️ Failed to save audio file:', saveError)
@@ -205,19 +205,19 @@ function AppContent() {
       } else {
         console.log('💾 Using existing audio file, checking for lip sync JSON...')
       }
-      
+
       // Wait for lip sync JSON file to be generated before playing audio
       console.log('⏳ Waiting for lip sync JSON file to be generated...')
       await processLipSyncWithRhubarb(audioFilename)
-      
+
       // Now set audio element for lip sync (after JSON is ready)
       // This ensures lip sync hook can access both audio and data simultaneously
       setAudioElement(audio)
       console.log('✅ Audio element and lip sync data ready and synchronized')
-      
+
       // Small delay to ensure everything is fully initialized
       await new Promise(resolve => setTimeout(resolve, 50))
-      
+
       // Play audio smoothly with synchronized lip sync
       console.log('🎉 Starting synchronized audio playback with lip sync...')
       try {
@@ -246,23 +246,23 @@ function AppContent() {
     try {
       console.log('🎬 Loading lip sync data from public/ folder...')
       setIsProcessing(true)
-      
+
       // Load JSON file from public/ folder
       // The server is processing it with Rhubarb in background
       const jsonFilename = `${filename}.json`
       const jsonPath = `/${jsonFilename}`
-      
+
       console.log('📥 Waiting for Rhubarb to generate:', jsonPath)
-      
+
       // Wait for JSON file to be ready (Rhubarb takes 1-3 seconds to process)
       let lipSyncData = null
       const maxAttempts = 10
       const waitTime = 500 // Check every 500ms
-      
+
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
           const response = await fetch(jsonPath, { cache: 'no-cache' })
-          
+
           if (response.ok) {
             const contentType = response.headers.get('content-type')
             if (contentType && contentType.includes('application/json')) {
@@ -271,7 +271,7 @@ function AppContent() {
               break
             }
           }
-          
+
           // File not ready yet, wait and retry
           if (attempt < maxAttempts) {
             console.log(`⏳ Waiting for Rhubarb processing... (${attempt}/${maxAttempts})`)
@@ -284,7 +284,7 @@ function AppContent() {
           }
         }
       }
-      
+
       if (lipSyncData && lipSyncData.mouthCues && Array.isArray(lipSyncData.mouthCues)) {
         setLipSyncData(lipSyncData)
         console.log('✅ Lip sync data loaded and ready:', {
@@ -301,7 +301,7 @@ function AppContent() {
     } catch (error) {
       console.error('❌ Error loading lip sync data:', error)
       console.warn('⚠️ Using fallback animation - audio will still play')
-      
+
       // Use fallback animation on error - don't block audio playback
       setLipSyncData({
         metadata: { duration: 0 },
@@ -318,10 +318,10 @@ function AppContent() {
   async function loadLipSyncFiles(jsonPath, wavPath, containerRef, setIsLoading) {
     setIsLoading(true)
     setError(null)
-    
+
     try {
       console.log(`🎬 Loading lip sync files: ${jsonPath} & ${wavPath}`)
-      
+
       // Load JSON file
       const jsonResponse = await fetch(jsonPath)
       if (!jsonResponse.ok) {
@@ -329,28 +329,28 @@ function AppContent() {
       }
       const lipSyncData = await jsonResponse.json()
       console.log('✅ Loaded lip sync data:', lipSyncData)
-      
+
       // Load audio file
       const audio = new Audio(wavPath)
       audio.controls = true
       audio.style.width = '100%'
       audio.style.marginTop = '12px'
-      
+
       // Set up audio event listeners
       audio.addEventListener('loadeddata', () => {
         console.log('✅ Audio file loaded, duration:', audio.duration)
       })
-      
+
       audio.addEventListener('error', (e) => {
         console.error('❌ Audio load error:', e)
         setError('Failed to load audio file')
         setIsLoading(false)
       })
-      
+
       // Set lip sync data and audio element
       setLipSyncData(lipSyncData)
       setAudioElement(audio)
-      
+
       // Set animation type based on which file is being loaded
       // Both 'thanks' and 'thanks_1' use the same animations
       if (wavPath.includes('thanks')) {
@@ -362,15 +362,15 @@ function AppContent() {
       } else {
         setAnimationType(null)
       }
-      
+
       console.log('✅ Lip sync data and audio set, ready to play')
-      
+
       // Add audio element to container for display
       if (containerRef.current) {
         containerRef.current.innerHTML = ''
         containerRef.current.appendChild(audio)
       }
-      
+
       // Auto-play audio (may be blocked by browser)
       try {
         await audio.play()
@@ -379,7 +379,7 @@ function AppContent() {
         console.log('⚠️ Autoplay blocked, user can click play button on audio element')
         // Audio element will be visible with controls, user can click play
       }
-      
+
     } catch (err) {
       console.error('❌ Error loading lip sync files:', err)
       setError(err.message || 'Failed to load lip sync files')
@@ -417,7 +417,7 @@ function AppContent() {
       console.log('🎤 Requesting microphone access...')
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
-      
+
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus'
       })
@@ -434,10 +434,10 @@ function AppContent() {
         console.log('🛑 Recording stopped')
         // Convert recorded chunks to blob
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-        
+
         // Convert WebM to WAV for ElevenLabs STT
         const wavBlob = await convertWebMToWav(audioBlob)
-        
+
         // Transcribe using ElevenLabs
         setIsTranscribing(true)
         try {
@@ -446,9 +446,9 @@ function AppContent() {
             languageCode: 'en',
             diarize: false
           })
-          
+
           console.log('✅ Transcribed text:', transcribedText)
-          
+
           if (transcribedText && transcribedText.trim()) {
             // Set the transcribed text in the textarea
             setText(transcribedText)
@@ -463,7 +463,7 @@ function AppContent() {
         } finally {
           setIsTranscribing(false)
         }
-        
+
         // Stop all tracks
         if (streamRef.current) {
           streamRef.current.getTracks().forEach(track => track.stop())
@@ -500,11 +500,11 @@ function AppContent() {
       const audioContext = new (window.AudioContext || window.webkitAudioContext)()
       const arrayBuffer = await webmBlob.arrayBuffer()
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-      
+
       // Convert AudioBuffer to WAV
       const wav = audioBufferToWav(audioBuffer)
       const wavBlob = new Blob([wav], { type: 'audio/wav' })
-      
+
       audioContext.close()
       return wavBlob
     } catch (error) {
@@ -584,11 +584,11 @@ function AppContent() {
 
     try {
       const userQuery = inputText.trim()
-      
+
       // Check for predefined responses first
       const predefined = getPredefinedResponse(userQuery)
       let responseText = null
-      
+
       if (predefined) {
         responseText = predefined
         console.log('✅ Using predefined response:', responseText)
@@ -602,14 +602,14 @@ function AppContent() {
         // Limit conversation history to last 10 exchanges (20 messages) to avoid token limits
         // Keep the most recent messages for better context
         const limitedHistory = conversationHistory.slice(-20)
-        
+
         // Get interactive response with conversation history
         console.log('🔄 Calling OpenAI API for:', userQuery)
         console.log(`📚 Sending ${limitedHistory.length} previous messages for context`)
-        
+
         responseText = await getInteractiveResponse(userQuery, limitedHistory)
         console.log('✅ Received response:', responseText)
-        
+
         // Update conversation history with new exchange
         // Keep only last 20 messages (10 exchanges) to manage token usage
         setConversationHistory(prev => {
@@ -622,37 +622,37 @@ function AppContent() {
           return updated.slice(-20)
         })
       }
-      
+
       // Ensure we have text
       if (!responseText || !responseText.trim()) {
         responseText = "I'm sorry, I couldn't process that request."
       }
-      
+
       setAnswerText(responseText)
-      
+
       // Show character count warning for long responses
       if (responseText.length > 400) {
         console.warn(`⚠️ Long response (${responseText.length} chars) - will be truncated to 500 chars for TTS`)
       }
-      
+
       // Convert text to speech using ElevenLabs API only
       try {
         await generateSpeechFromText(responseText)
       } catch (ttsError) {
         // Extract error message safely
-        const errorMessage = ttsError instanceof Error 
-          ? ttsError.message 
+        const errorMessage = ttsError instanceof Error
+          ? ttsError.message
           : (ttsError?.message || String(ttsError))
-        
+
         console.error('TTS Error:', ttsError)
-        
+
         // Check if it's a quota error
         if (errorMessage && (errorMessage.includes('quota') || errorMessage.includes('credit') || errorMessage.includes('exceed'))) {
           setError(`ElevenLabs API Quota Exceeded: ${errorMessage}. The response text is displayed above, but audio generation failed. Please check your ElevenLabs account credits.`)
           // Don't throw - show the text response even if audio fails
           return
         }
-        
+
         // For other audio errors, show warning but don't block
         setError(`Audio generation failed: ${errorMessage}. The response text is displayed above.`)
         console.warn('Audio generation failed, but continuing with text response')
@@ -662,17 +662,17 @@ function AppContent() {
     } catch (err) {
       console.error('Error:', err)
       const errorMessage = err.message || 'There was an issue processing your request.'
-      
+
       // Provide helpful error messages
-      if (errorMessage.includes('Cannot connect to OpenAI API') || 
-          errorMessage.includes('Failed to fetch') ||
-          errorMessage.includes('ERR_CONNECTION') ||
-          errorMessage.includes('NetworkError')) {
+      if (errorMessage.includes('Cannot connect to OpenAI API') ||
+        errorMessage.includes('Failed to fetch') ||
+        errorMessage.includes('ERR_CONNECTION') ||
+        errorMessage.includes('NetworkError')) {
         setError('Cannot connect to OpenAI API. Please check your internet connection.')
       } else {
         setError(errorMessage)
       }
-      
+
       setAnswerText("I encountered an error processing your request. " + errorMessage)
     } finally {
       setLoading(false)
@@ -697,7 +697,7 @@ function AppContent() {
   return (
     <div className="app-container">
       {/* 3D AVATAR CANVAS */}
-      <div className="avatar-section">
+      <div className="avatar-section" style={{ paddingBottom: '80px' }}>
         <Canvas camera={{ position: [0, 1.6, 3], fov: 35 }}>
           <ambientLight intensity={0.6} />
           <directionalLight position={[5, 5, 5]} intensity={1} />
@@ -708,142 +708,148 @@ function AppContent() {
           <Environment preset="studio" />
         </Canvas>
       </div>
-
-      {/* TEXT INPUT SECTION */}
-      <div className="tts-section">
-        <div className="tts-container">
-          <h2 className="section-title">Chat with AI</h2>
- 
-          
-          <form onSubmit={handleSubmit} className="tts-form">
-            <div className="form-group">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <label htmlFor="text-input" style={{ marginBottom: 0 }}>Enter your question:</label>
+      
+      {/* FIXED BOTTOM FORM - COMPACT */}
+      <form 
+        onSubmit={handleSubmit} 
+        className="tts-form"
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backdropFilter: 'blur(10px)',
+          padding: '12px 20px',
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.1)',
+          zIndex: 1000,
+          margin: 0
+        }}
+      >
+        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <textarea
+              id="text-input"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Type your question here or use the microphone..."
+              rows={1}
+              maxLength={1000}
+              disabled={loading || isRecording || isTranscribing}
+              style={{ 
+                flex: 1,
+                padding: '10px 12px',
+                fontSize: '14px',
+                borderRadius: '20px',
+                border: '1px solid #d1d5db',
+                resize: 'none',
+                minHeight: '40px',
+                maxHeight: '100px'
+              }}
+              onInput={(e) => {
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px';
+              }}
+            />
             
-              </div>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                <textarea
-                  id="text-input"
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  placeholder="Type your question here or use the microphone..."
-                  rows={6}
-                  maxLength={1000}
-                  disabled={loading || isRecording || isTranscribing}
-                  style={{ flex: 1 }}
-                />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
-                  {!isRecording ? (
-                    <button
-                      type="button"
-                      onClick={startRecording}
-                      disabled={loading || isTranscribing}
-                      style={{
-                        padding: '12px',
-                        backgroundColor: isTranscribing ? '#d1d5db' : '#ef4444',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '50%',
-                        width: '50px',
-                        height: '50px',
-                        cursor: isTranscribing ? 'not-allowed' : 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '20px',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                        transition: 'all 0.2s'
-                      }}
-                      title="Start recording"
-                    >
-                      🎤
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={stopRecording}
-                      disabled={false}
-                      style={{
-                        padding: '12px',
-                        backgroundColor: '#ef4444',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '50%',
-                        width: '50px',
-                        height: '50px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '20px',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                        animation: 'pulse 1.5s infinite'
-                      }}
-                      title="Stop recording"
-                    >
-                      ⏹️
-                    </button>
-                  )}
-                  {isTranscribing && (
-                    <div style={{ fontSize: '12px', color: '#666', textAlign: 'center' }}>
-                      Transcribing...
-                    </div>
-                  )}
-                  {isRecording && (
-                    <div style={{ fontSize: '12px', color: '#ef4444', textAlign: 'center', fontWeight: 'bold' }}>
-                      Recording...
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="char-count">{text.length}/1000</div>
-            </div>
-            
-            <button type="submit" disabled={loading || !text.trim() || isRecording || isTranscribing} className="generate-button">
-              {loading ? (
-                <>
-                  <span className="loading-spinner"></span>
-                  Processing...
-                </>
-              ) : isTranscribing ? (
-                <>
-                  <span className="loading-spinner"></span>
-                  Transcribing...
-                </>
-              ) : (
-                'Send'
-              )}
-            </button>
-
-            {/* SHOW THE ANSWER */}
-            {answerText && (
-              <div className="answer-display" style={{
-                marginTop: '20px',
-                padding: '15px',
-                backgroundColor: '#f0f9ff',
-                border: '2px solid #3b82f6',
-                borderRadius: '8px',
-                fontSize: '16px',
-                lineHeight: '1.6',
-                color: '#1e40af',
-                fontWeight: '500'
-              }}>
-                <div style={{ marginBottom: '8px', fontWeight: 'bold', color: '#1e3a8a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>Answer:</span>
-                  {answerText.length > 400 && (
-                    <span style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 'normal' }}>
-                      ⚠️ {answerText.length} chars (will truncate to 500 for audio)
-                    </span>
-                  )}
-                </div>
-                <div>{answerText}</div>
-              </div>
+            {!isRecording ? (
+              <button
+                type="button"
+                onClick={startRecording}
+                disabled={loading || isTranscribing}
+                style={{
+                  padding: '8px',
+                  backgroundColor: isTranscribing ? '#d1d5db' : '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '40px',
+                  height: '40px',
+                  cursor: isTranscribing ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '18px',
+                  flexShrink: 0,
+                  transition: 'all 0.2s'
+                }}
+                title="Start recording"
+              >
+                🎤
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={stopRecording}
+                style={{
+                  padding: '8px',
+                  backgroundColor: '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '40px',
+                  height: '40px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '18px',
+                  flexShrink: 0,
+                  animation: 'pulse 1.5s infinite'
+                }}
+                title="Stop recording"
+              >
+                ⏹️
+              </button>
             )}
-            
-            {error && <div className="error-message">{error}</div>}
-          </form>
+
+            <button 
+              type="submit" 
+              disabled={loading || !text.trim() || isRecording || isTranscribing}
+              style={{
+                padding: '10px 20px',
+                backgroundColor: (loading || !text.trim() || isRecording || isTranscribing) ? '#d1d5db' : '#3b82f6',
+                color: 'white',
+                border: 'none',
+                borderRadius: '20px',
+                cursor: (loading || !text.trim() || isRecording || isTranscribing) ? 'not-allowed' : 'pointer',
+                fontSize: '14px',
+                fontWeight: '500',
+                flexShrink: 0,
+                minWidth: '80px',
+                transition: 'all 0.2s'
+              }}
+            >
+              {loading ? 'Processing...' : isTranscribing ? 'Transcribing...' : 'Send'}
+            </button>
+          </div>
+
+          {(isRecording || isTranscribing) && (
+            <div style={{ 
+              fontSize: '11px', 
+              color: isRecording ? '#ef4444' : '#666', 
+              marginTop: '6px',
+              textAlign: 'center',
+              fontWeight: isRecording ? 'bold' : 'normal'
+            }}>
+              {isRecording ? 'Recording...' : 'Transcribing...'}
+            </div>
+          )}
+
+          {error && (
+            <div style={{
+              fontSize: '12px',
+              color: '#ef4444',
+              marginTop: '8px',
+              padding: '8px 12px',
+              backgroundColor: '#fee2e2',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              {error}
+            </div>
+          )}
         </div>
-      </div>
+      </form>
     </div>
   )
 }
