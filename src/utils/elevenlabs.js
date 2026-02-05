@@ -40,7 +40,7 @@ export async function getElevenLabsVoices() {
  * Generate speech from text using ElevenLabs API
  * @param {string} text - Text to convert to speech
  * @param {object} options - Optional configuration
- * @param {string} options.voiceId - Voice ID (default: 'pNInz6obpgDQGcFmaJgB' - Adam, male voice)
+ * @param {string} options.voiceId - Voice ID (default: '21m00Tcm4TlvDq8ikWAM' - Rachel, female voice)
  * @param {number} options.stability - Stability setting (0-1, default: 0.5)
  * @param {number} options.similarityBoost - Similarity boost (0-1, default: 0.75)
  * @param {number} options.style - Style setting (0-1, default: 0.0)
@@ -53,7 +53,7 @@ export async function generateSpeechWithElevenLabs(text, options = {}) {
   }
 
   const {
-    voiceId = 'pNInz6obpgDQGcFmaJgB', // Adam voice (male) - default
+    voiceId = '21m00Tcm4TlvDq8ikWAM', // Rachel voice (female) - default
     stability = 0.5,
     similarityBoost = 0.75,
     style = 0.0,

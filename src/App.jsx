@@ -148,7 +148,7 @@ function AppContent() {
         
         // Generate speech with ElevenLabs
         audioBlob = await generateSpeechWithElevenLabs(truncatedText, {
-          voiceId: 'pNInz6obpgDQGcFmaJgB', // Adam voice (male)
+          voiceId: '21m00Tcm4TlvDq8ikWAM', // Rachel voice (female) - natural and clear
           stability: 0.5,
           similarityBoost: 0.75,
           style: 0.0,
@@ -238,7 +238,7 @@ function AppContent() {
 
   /**
    * Load lip sync JSON from public/ folder (after Rhubarb processing)
-   * Optimized with faster polling and reduced wait times
+   * Waits for Rhubarb to finish processing before loading
    * The server automatically processes audio with Rhubarb after saving
    * Returns a promise that resolves when lip sync data is loaded
    */
@@ -248,67 +248,39 @@ function AppContent() {
       setIsProcessing(true)
       
       // Load JSON file from public/ folder
-      // The server has already processed it with Rhubarb
+      // The server is processing it with Rhubarb in background
       const jsonFilename = `${filename}.json`
       const jsonPath = `/${jsonFilename}`
       
-      console.log('📥 Loading JSON from:', jsonPath)
+      console.log('📥 Waiting for Rhubarb to generate:', jsonPath)
       
-      // Optimized polling: faster initial checks, exponential backoff
+      // Wait for JSON file to be ready (Rhubarb takes 1-3 seconds to process)
       let lipSyncData = null
-      let retries = 15 // Increased retries for reliability
-      let waitTime = 200 // Start with 200ms for faster initial checks
-      const maxWaitTime = 1000 // Max wait time between retries
+      const maxAttempts = 10
+      const waitTime = 500 // Check every 500ms
       
-      // Small initial wait to give Rhubarb time to start processing
-      await new Promise(resolve => setTimeout(resolve, 500))
-      
-      while (retries > 0 && !lipSyncData) {
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
           const response = await fetch(jsonPath, { cache: 'no-cache' })
+          
           if (response.ok) {
             const contentType = response.headers.get('content-type')
             if (contentType && contentType.includes('application/json')) {
               lipSyncData = await response.json()
-              console.log('✅ Lip sync JSON loaded successfully')
+              console.log(`✅ Lip sync JSON loaded successfully (attempt ${attempt})`)
               break
-            } else {
-              // Got HTML instead of JSON (404 page or error) - file not ready yet
-              if (retries > 1) {
-                console.log(`⏳ JSON file not ready yet, retrying in ${waitTime}ms... (${11 - retries}/10)`)
-                await new Promise(resolve => setTimeout(resolve, waitTime))
-                waitTime = Math.min(waitTime * 1.3, maxWaitTime) // Exponential backoff, capped
-                retries--
-                continue
-              } else {
-                throw new Error('Received HTML instead of JSON - file may not be ready')
-              }
             }
-          } else if (response.status === 404) {
-            // File not ready yet, wait and retry
-            if (retries > 1) {
-              console.log(`⏳ JSON file not found yet, retrying in ${waitTime}ms... (${11 - retries}/10)`)
-              await new Promise(resolve => setTimeout(resolve, waitTime))
-              waitTime = Math.min(waitTime * 1.3, maxWaitTime) // Exponential backoff
-              retries--
-            } else {
-              throw new Error('JSON file not found after all retries')
-            }
-          } else {
-            throw new Error(`Failed to load JSON: ${response.status}`)
+          }
+          
+          // File not ready yet, wait and retry
+          if (attempt < maxAttempts) {
+            console.log(`⏳ Waiting for Rhubarb processing... (${attempt}/${maxAttempts})`)
+            await new Promise(resolve => setTimeout(resolve, waitTime))
           }
         } catch (error) {
-          if (retries === 1) {
-            throw error
-          }
-          // Network errors - retry with backoff
-          if (error.message.includes('fetch') || error.message.includes('Failed to fetch')) {
-            console.log(`⏳ Network error, retrying in ${waitTime}ms... (${11 - retries}/10)`)
+          // Network error or file not ready, retry
+          if (attempt < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, waitTime))
-            waitTime = Math.min(waitTime * 1.3, maxWaitTime)
-            retries--
-          } else {
-            throw error
           }
         }
       }
@@ -319,11 +291,8 @@ function AppContent() {
           mouthCuesCount: lipSyncData.mouthCues.length,
           duration: lipSyncData.metadata?.duration || 0
         })
-        
-        // Small delay to ensure lip sync data is fully processed before continuing
-        await new Promise(resolve => setTimeout(resolve, 100))
       } else {
-        console.warn('⚠️ No valid lip sync data found, using fallback animation')
+        console.warn('⚠️ No valid lip sync data found after waiting, using fallback animation')
         setLipSyncData({
           metadata: { duration: 0 },
           mouthCues: []

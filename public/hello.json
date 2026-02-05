@@ -1,0 +1,13 @@
+{
+  "metadata": {
+    "soundFile": "C:\\Users\\Ayman Boujjar\\Desktop\\bojotar\\public\\hello.wav",
+    "duration": 0.74
+  },
+  "mouthCues": [
+    { "start": 0.00, "end": 0.16, "value": "X" },
+    { "start": 0.16, "end": 0.23, "value": "C" },
+    { "start": 0.23, "end": 0.44, "value": "E" },
+    { "start": 0.44, "end": 0.51, "value": "F" },
+    { "start": 0.51, "end": 0.74, "value": "X" }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "soundFile": "C:\\Users\\Ayman Boujjar\\Desktop\\bojotar\\public\\my_name_is_bojo.wav",
+    "duration": 1.30
+  },
+  "mouthCues": [
+    { "start": 0.00, "end": 0.13, "value": "X" },
+    { "start": 0.13, "end": 0.21, "value": "A" },
+    { "start": 0.21, "end": 0.26, "value": "C" },
+    { "start": 0.26, "end": 0.30, "value": "B" },
+    { "start": 0.30, "end": 0.37, "value": "C" },
+    { "start": 0.37, "end": 0.45, "value": "A" },
+    { "start": 0.45, "end": 0.63, "value": "B" },
+    { "start": 0.63, "end": 0.70, "value": "E" },
+    { "start": 0.70, "end": 0.77, "value": "F" },
+    { "start": 0.77, "end": 0.91, "value": "B" },
+    { "start": 0.91, "end": 0.98, "value": "E" },
+    { "start": 0.98, "end": 1.05, "value": "F" },
+    { "start": 1.05, "end": 1.30, "value": "X" }
+  ]
+}

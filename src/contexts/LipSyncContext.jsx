@@ -7,6 +7,7 @@ export function LipSyncProvider({ children }) {
   const [audioElement, setAudioElement] = useState(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [animationType, setAnimationType] = useState(null) // 'thanks', 'tzaghrita', or null
+  const [morphTargetDictionary, setMorphTargetDictionary] = useState(null) // Store correct dictionary
 
   return (
     <LipSyncContext.Provider
@@ -19,6 +20,8 @@ export function LipSyncProvider({ children }) {
         setIsProcessing,
         animationType,
         setAnimationType,
+        morphTargetDictionary,
+        setMorphTargetDictionary,
       }}
     >
       {children}
