@@ -8,6 +8,8 @@ export function LipSyncProvider({ children }) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [animationType, setAnimationType] = useState(null) // 'thanks', 'tzaghrita', or null
   const [morphTargetDictionary, setMorphTargetDictionary] = useState(null) // Store correct dictionary
+  const [triggerIntro, setTriggerIntro] = useState(false) // Trigger avatar to stand and walk
+  const [introComplete, setIntroComplete] = useState(false) // True when avatar finished intro animation
 
   return (
     <LipSyncContext.Provider
@@ -22,6 +24,10 @@ export function LipSyncProvider({ children }) {
         setAnimationType,
         morphTargetDictionary,
         setMorphTargetDictionary,
+        triggerIntro,
+        setTriggerIntro,
+        introComplete,
+        setIntroComplete,
       }}
     >
       {children}

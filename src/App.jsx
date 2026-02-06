@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Environment } from '@react-three/drei'
 import Avatar from './components/Avatar'
+import VictorianEnvironment from './components/VictorianEnvironment'
 import { getInteractiveResponse, getPredefinedResponse } from './utils/interactive'
 import { LipSyncProvider, useLipSyncContext } from './contexts/LipSyncContext'
 import { processLipSync } from './utils/lipSync'
@@ -26,7 +27,7 @@ function AppContent() {
   const mediaRecorderRef = useRef(null)
   const audioChunksRef = useRef([])
   const streamRef = useRef(null)
-  const { setAudioElement, setLipSyncData, setIsProcessing, setAnimationType } = useLipSyncContext()
+  const { setAudioElement, setLipSyncData, setIsProcessing, setAnimationType, setTriggerIntro, introComplete } = useLipSyncContext()
 
   // Check if file server is running on mount
   useEffect(() => {
@@ -584,6 +585,26 @@ function AppContent() {
 
     try {
       const userQuery = inputText.trim()
+      
+      // Check if user said "hello" to trigger intro animation
+      const greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'greetings', 'bonjour', 'salut']
+      const isGreeting = greetings.some(g => userQuery.toLowerCase().includes(g))
+      
+      // If greeting and intro not complete, trigger intro and wait for it
+      if (isGreeting && !introComplete) {
+        console.log('👋 Greeting detected! Triggering avatar intro animation...')
+        setTriggerIntro(true)
+        
+        // Wait for intro animation to complete (avatar to arrive)
+        console.log('⏳ Waiting for avatar to complete intro animation...')
+        await new Promise((resolve) => {
+          // Wait 5 seconds for intro to complete (standing up ~3s + moving forward ~2s)
+          setTimeout(() => {
+            console.log('✅ Intro animation complete, now avatar will speak')
+            resolve()
+          }, 5000) // 5 seconds for full intro animation
+        })
+      }
 
       // Check for predefined responses first
       const predefined = getPredefinedResponse(userQuery)
@@ -697,15 +718,26 @@ function AppContent() {
   return (
     <div className="app-container">
       {/* 3D AVATAR CANVAS */}
-      <div className="avatar-section" style={{ paddingBottom: '80px' }}>
-        <Canvas camera={{ position: [0, 1.6, 3], fov: 35 }}>
-          <ambientLight intensity={0.6} />
-          <directionalLight position={[5, 5, 5]} intensity={1} />
-
+      <div className="avatar-section">
+        <Canvas 
+          camera={{ position: [0, 1.5, 3], fov: 45 }}
+          shadows
+          style={{ background: 'linear-gradient(to bottom, #87ceeb 0%, #b8d4e3 100%)' }}
+        >
+          {/* Victorian Era Environment - Ada Lovelace's Study */}
+          <VictorianEnvironment />
+          
+          {/* Avatar - positioned in the scene */}
           <Avatar />
 
-          <OrbitControls />
-          <Environment preset="studio" />
+          {/* Camera controls */}
+          <OrbitControls 
+            minDistance={1.5}
+            maxDistance={8}
+            minPolarAngle={Math.PI / 6}
+            maxPolarAngle={Math.PI / 2.2}
+            target={[0, 1, 0]}
+          />
         </Canvas>
       </div>
       

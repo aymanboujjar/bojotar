@@ -1,16 +1,18 @@
 .app-container {
   display: flex;
+  flex-direction: column;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  background: #2a1810;
 }
 
 .avatar-section {
   flex: 1;
   position: relative;
   min-width: 0;
-  background: radial-gradient(circle at center, rgba(100, 108, 255, 0.1) 0%, transparent 70%);
+  width: 100%;
+  height: 100%;
 }
 
 .tts-section {

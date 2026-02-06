@@ -1,13 +1,27 @@
-import { useGLTF } from '@react-three/drei'
-import { useEffect, useRef } from 'react'
+import { useGLTF, useAnimations } from '@react-three/drei'
+import { useEffect, useRef, useState } from 'react'
 import { useLipSync } from '../hooks/useLipSync'
 import { useLipSyncContext } from '../contexts/LipSyncContext'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
+// Intro animation phases
+const INTRO_PHASES = {
+    SITTING: 'sitting',
+    STANDING_UP: 'standing_up',
+    MOVING_FORWARD: 'moving_forward',
+    ARRIVED: 'arrived'
+}
+
 export default function Avatar() {
     const { scene, animations } = useGLTF('/models/avtarr.glb')
+    
+    // Load intro animation GLB files
+    const sittingGLB = useGLTF('/models/sitting.glb')
+    const standingUpGLB = useGLTF('/models/standingup.glb')
+    const walkingGLB = useGLTF('/models/walking.glb')
+    
     const headRef = useRef()
     const groupRef = useRef()
     const mixerRef = useRef(null)
@@ -15,13 +29,42 @@ export default function Avatar() {
     const defaultActionRef = useRef(null)
     const nextActionRef = useRef(null)
     const avatarSkeletonRef = useRef(null)
-    const { animationType, audioElement, lipSyncData, setMorphTargetDictionary } = useLipSyncContext()
+    const { animationType, audioElement, lipSyncData, setMorphTargetDictionary, triggerIntro, setIntroComplete } = useLipSyncContext()
     const animationsRef = useRef({
         salute: null,
         offensiveIdle: null,
         yelling: null
     })
     const saluteEndCheckRef = useRef(null)
+    
+    // ===== INTRO ANIMATION REFS =====
+    const introAnimsRef = useRef({
+        sitting: null,
+        standingUp: null,
+        walking: null
+    })
+    const currentIntroActionRef = useRef(null)
+    
+    // ===== INTRO ANIMATION STATE =====
+    const [introPhase, setIntroPhase] = useState(INTRO_PHASES.SITTING)
+    const introStartTimeRef = useRef(null)
+    const introTriggeredRef = useRef(false)
+    
+    // Intro timing configuration (in seconds)
+    const introConfig = {
+        moveForwardDuration: 2.0,  // Time to move forward (slower, more natural)
+        finalPosition: { x: 0, y: 1.1, z: 0 },  // Final position (center of scene)
+        startPosition: { x: 0, y: 0.9, z: -2.2 }   // Start position (sitting in chair)
+    }
+    
+    // Listen for intro trigger (when user says hello)
+    useEffect(() => {
+        if (triggerIntro && !introTriggeredRef.current && introPhase === INTRO_PHASES.SITTING) {
+            console.log('🎬 Hello detected! Starting intro animation...')
+            introTriggeredRef.current = true
+            setIntroPhase(INTRO_PHASES.STANDING_UP)
+        }
+    }, [triggerIntro, introPhase])
 
     useEffect(() => {
         // Find the head mesh with morph targets - improved detection for new avatar
@@ -517,6 +560,144 @@ export default function Avatar() {
 
     }, [scene])
 
+    // ===== LOAD INTRO ANIMATIONS FROM GLB FILES =====
+    useEffect(() => {
+        if (!mixerRef.current) return
+        
+        const mixer = mixerRef.current
+        
+        // Helper to filter morph tracks
+        const filterMorphTracks = (clip) => {
+            if (!clip) return null
+            const filteredTracks = clip.tracks.filter(track => {
+                const isMorphTrack = track.name && (
+                    track.name.includes('.morphTargetInfluences') ||
+                    track.name.toLowerCase().includes('viseme') ||
+                    track.name.toLowerCase().includes('mouth') ||
+                    track.name.toLowerCase().includes('jaw')
+                )
+                return !isMorphTrack
+            })
+            return new THREE.AnimationClip(clip.name, clip.duration, filteredTracks)
+        }
+        
+        // Load sitting animation
+        if (sittingGLB.animations && sittingGLB.animations.length > 0) {
+            const sittingClip = filterMorphTracks(sittingGLB.animations[0])
+            introAnimsRef.current.sitting = sittingClip
+            console.log('✅ Sitting animation loaded:', sittingClip.name, sittingClip.duration, 'seconds')
+        }
+        
+        // Load standing up animation
+        if (standingUpGLB.animations && standingUpGLB.animations.length > 0) {
+            const standingUpClip = filterMorphTracks(standingUpGLB.animations[0])
+            introAnimsRef.current.standingUp = standingUpClip
+            console.log('✅ Standing up animation loaded:', standingUpClip.name, standingUpClip.duration, 'seconds')
+        }
+        
+        // Load walking animation
+        if (walkingGLB.animations && walkingGLB.animations.length > 0) {
+            const walkingClip = filterMorphTracks(walkingGLB.animations[0])
+            introAnimsRef.current.walking = walkingClip
+            console.log('✅ Walking animation loaded:', walkingClip.name, walkingClip.duration, 'seconds')
+        }
+        
+        // Start with sitting animation if available
+        if (introAnimsRef.current.sitting && introPhase === INTRO_PHASES.SITTING) {
+            // Stop default animation
+            if (defaultActionRef.current) {
+                defaultActionRef.current.stop()
+            }
+            
+            const sittingAction = mixer.clipAction(introAnimsRef.current.sitting)
+            sittingAction.setLoop(THREE.LoopRepeat, Infinity)
+            sittingAction.play()
+            currentIntroActionRef.current = sittingAction
+            console.log('🎬 Playing sitting animation')
+        }
+        
+    }, [sittingGLB, standingUpGLB, walkingGLB, introPhase])
+    
+    // ===== HANDLE INTRO PHASE TRANSITIONS =====
+    useEffect(() => {
+        if (!mixerRef.current) return
+        
+        const mixer = mixerRef.current
+        const introAnims = introAnimsRef.current
+        
+        // Helper to transition between animations
+        const transitionTo = (newClip, loop = false, onComplete = null) => {
+            if (!newClip) return
+            
+            const newAction = mixer.clipAction(newClip)
+            newAction.reset()
+            newAction.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
+            newAction.clampWhenFinished = !loop
+            
+            if (currentIntroActionRef.current) {
+                // Crossfade from current to new
+                currentIntroActionRef.current.fadeOut(0.3)
+                newAction.fadeIn(0.3)
+            }
+            
+            newAction.play()
+            currentIntroActionRef.current = newAction
+            
+            // Set up completion callback for non-looping animations
+            if (!loop && onComplete) {
+                const checkComplete = () => {
+                    if (newAction.time >= newClip.duration * 0.95) {
+                        onComplete()
+                    } else {
+                        requestAnimationFrame(checkComplete)
+                    }
+                }
+                requestAnimationFrame(checkComplete)
+            }
+            
+            return newAction
+        }
+        
+        if (introPhase === INTRO_PHASES.SITTING) {
+            // Already handled in animation load useEffect
+        } else if (introPhase === INTRO_PHASES.STANDING_UP) {
+            console.log('🎬 Transitioning to standing up animation')
+            if (introAnims.standingUp) {
+                transitionTo(introAnims.standingUp, false, () => {
+                    console.log('🎬 Standing up complete, moving forward')
+                    setIntroPhase(INTRO_PHASES.MOVING_FORWARD)
+                })
+            } else {
+                // No standing animation, skip to moving forward
+                setIntroPhase(INTRO_PHASES.MOVING_FORWARD)
+            }
+        } else if (introPhase === INTRO_PHASES.MOVING_FORWARD) {
+            console.log('🎬 Moving forward (no walk animation)')
+            // Transition to default idle while moving forward
+            if (currentIntroActionRef.current) {
+                currentIntroActionRef.current.fadeOut(0.5)
+            }
+            if (defaultActionRef.current) {
+                defaultActionRef.current.reset()
+                defaultActionRef.current.fadeIn(0.5)
+                defaultActionRef.current.play()
+            }
+        } else if (introPhase === INTRO_PHASES.ARRIVED) {
+            console.log('🎬 Arrived! Transitioning to idle')
+            // Fade out walking, fade in default idle
+            if (currentIntroActionRef.current) {
+                currentIntroActionRef.current.fadeOut(0.5)
+            }
+            if (defaultActionRef.current) {
+                defaultActionRef.current.reset()
+                defaultActionRef.current.fadeIn(0.5)
+                defaultActionRef.current.play()
+            }
+            currentIntroActionRef.current = null
+        }
+        
+    }, [introPhase])
+
     // Handle animation changes based on animationType and lipSyncData
     // Keep default animation running, only add external animations if specified
     useEffect(() => {
@@ -646,6 +827,51 @@ export default function Avatar() {
     // Update animation mixer every frame AND apply lip sync AFTER mixer
     // This is CRITICAL - lip sync MUST run after mixer.update() or mixer will overwrite our values!
     useFrame((state, delta) => {
+        // ===== INTRO ANIMATION SEQUENCE - Position Control =====
+        if (groupRef.current) {
+            const { moveForwardDuration, finalPosition, startPosition } = introConfig
+            
+            // Smooth easing function
+            const easeOutQuad = (t) => 1 - (1 - t) * (1 - t)
+            
+            if (introPhase === INTRO_PHASES.SITTING) {
+                // Sitting phase - avatar stays in chair position, waiting for "hello"
+                groupRef.current.position.set(startPosition.x, startPosition.y, startPosition.z)
+                groupRef.current.rotation.y = 0
+                
+            } else if (introPhase === INTRO_PHASES.STANDING_UP) {
+                // Standing up phase - stay at chair position
+                groupRef.current.position.set(startPosition.x, startPosition.y, startPosition.z)
+                
+            } else if (introPhase === INTRO_PHASES.MOVING_FORWARD) {
+                // Moving forward - simple position movement (no walk animation)
+                if (!introStartTimeRef.current) {
+                    introStartTimeRef.current = state.clock.elapsedTime
+                }
+                
+                const elapsed = state.clock.elapsedTime - introStartTimeRef.current
+                const progress = Math.min(elapsed / moveForwardDuration, 1)
+                const easedProgress = easeOutQuad(progress)
+                
+                const currentZ = startPosition.z + (finalPosition.z - startPosition.z) * easedProgress
+                const currentY = startPosition.y + (finalPosition.y - startPosition.y) * easedProgress
+                
+                groupRef.current.position.set(finalPosition.x, currentY, currentZ)
+                
+                if (progress >= 1) {
+                    setIntroPhase(INTRO_PHASES.ARRIVED)
+                    groupRef.current.position.set(finalPosition.x, finalPosition.y, finalPosition.z)
+                    introStartTimeRef.current = null
+                    setIntroComplete(true) // Signal that avatar is ready to speak
+                    console.log('🎬 Intro complete - Avatar arrived and ready to speak!')
+                }
+                
+            } else if (introPhase === INTRO_PHASES.ARRIVED) {
+                // Final position locked
+                groupRef.current.position.set(finalPosition.x, finalPosition.y, finalPosition.z)
+            }
+        }
+        
         if (mixerRef.current) {
             // Clamp delta to prevent large jumps that can cause animation glitches
             const clampedDelta = Math.min(delta, 0.1) // Max 100ms per frame
@@ -904,15 +1130,17 @@ export default function Avatar() {
     useLipSync(headRef)
 
     return (
-        <>
+        <group ref={groupRef} position={[0, 0.9, -2.2]}>
             <primitive
-                ref={groupRef}
                 object={scene}
                 scale={1.5}
                 position={[0, -1.5, 0]}
             />
-        </>
+        </group>
     )
 }
 
 useGLTF.preload('/models/avtarr.glb')
+useGLTF.preload('/models/sitting.glb')
+useGLTF.preload('/models/standingup.glb')
+useGLTF.preload('/models/walking.glb')
