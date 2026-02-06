@@ -241,44 +241,7 @@ export default function VictorianEnvironment() {
                 </mesh>
             </group>
             
-            {/* ===== DESK - Victorian writing desk ===== */}
-            <group position={[2.5, 0, 1]}>
-                {/* Desk top */}
-                <mesh position={[0, 0.75, 0]}>
-                    <boxGeometry args={[1.5, 0.08, 0.8]} />
-                    <meshStandardMaterial color={colors.mediumWood} roughness={0.5} />
-                </mesh>
-                
-                {/* Desk legs */}
-                {[[-0.65, -0.3], [-0.65, 0.3], [0.65, -0.3], [0.65, 0.3]].map(([x, z], i) => (
-                    <mesh key={i} position={[x, 0.35, z]}>
-                        <boxGeometry args={[0.1, 0.7, 0.1]} />
-                        <meshStandardMaterial color={colors.darkWood} />
-                    </mesh>
-                ))}
-                
-                {/* Papers on desk */}
-                <mesh position={[0, 0.8, 0]} rotation={[0, 0.1, 0]}>
-                    <boxGeometry args={[0.4, 0.01, 0.5]} />
-                    <meshStandardMaterial color={colors.cream} />
-                </mesh>
-                <mesh position={[-0.3, 0.81, 0.1]} rotation={[0, -0.2, 0]}>
-                    <boxGeometry args={[0.3, 0.01, 0.4]} />
-                    <meshStandardMaterial color="#f0e6d3" />
-                </mesh>
-                
-                {/* Quill pen holder */}
-                <mesh position={[0.5, 0.85, -0.2]}>
-                    <cylinderGeometry args={[0.04, 0.05, 0.12, 8]} />
-                    <meshStandardMaterial color={colors.brass} metalness={0.6} roughness={0.4} />
-                </mesh>
-                
-                {/* Ink bottle */}
-                <mesh position={[0.4, 0.82, 0.2]}>
-                    <cylinderGeometry args={[0.03, 0.03, 0.08, 8]} />
-                    <meshStandardMaterial color="#1a1a1a" />
-                </mesh>
-            </group>
+            {/* Old desk removed - replaced by reading table in front of chair */}
             
             {/* ===== CANDELABRA - Left ===== */}
             <group position={[-2, 0, -2]}>
@@ -387,19 +350,24 @@ export default function VictorianEnvironment() {
                 </mesh>
             </group>
             
-            {/* ===== GLOBE - On desk ===== */}
-            <group position={[3.2, 0.85, 0.8]}>
-                <mesh>
-                    <sphereGeometry args={[0.12, 16, 16]} />
+            {/* ===== GLOBE - On floor stand ===== */}
+            <group position={[3.5, 0, -2]}>
+                {/* Floor stand */}
+                <mesh position={[0, 0.5, 0]}>
+                    <cylinderGeometry args={[0.03, 0.08, 1, 8]} />
+                    <meshStandardMaterial color={colors.brass} metalness={0.6} roughness={0.4} />
+                </mesh>
+                <mesh position={[0, 1.05, 0]}>
+                    <sphereGeometry args={[0.18, 16, 16]} />
                     <meshStandardMaterial 
                         color="#4a6741"
                         roughness={0.6}
                     />
                 </mesh>
-                {/* Globe stand */}
-                <mesh position={[0, -0.15, 0]}>
-                    <cylinderGeometry args={[0.02, 0.06, 0.08, 8]} />
-                    <meshStandardMaterial color={colors.brass} metalness={0.6} roughness={0.4} />
+                {/* Globe ring */}
+                <mesh position={[0, 1.05, 0]} rotation={[0.3, 0, 0]}>
+                    <torusGeometry args={[0.2, 0.008, 8, 32]} />
+                    <meshStandardMaterial color={colors.brass} metalness={0.7} roughness={0.3} />
                 </mesh>
             </group>
             
@@ -429,8 +397,8 @@ export default function VictorianEnvironment() {
                 <meshStandardMaterial color={colors.gold} />
             </mesh>
             
-            {/* ===== VICTORIAN ARMCHAIR - For intro animation ===== */}
-            <group position={[0, -0.5, -2.5]} scale={[1.8, 1.5, 1.5]}>
+            {/* ===== VICTORIAN ARMCHAIR - Sitting position ===== */}
+            <group position={[0, -0.5, -1.0]} scale={[1.8, 1.5, 1.5]}>
                 {/* Chair seat */}
                 <mesh position={[0, 0.35, 0]}>
                     <boxGeometry args={[0.8, 0.12, 0.7]} />
@@ -449,7 +417,7 @@ export default function VictorianEnvironment() {
                     <meshStandardMaterial color={colors.darkWood} roughness={0.6} />
                 </mesh>
                 
-                {/* Chair armrests - wider apart */}
+                {/* Chair armrests */}
                 <mesh position={[-0.5, 0.55, 0]}>
                     <boxGeometry args={[0.1, 0.3, 0.6]} />
                     <meshStandardMaterial color={colors.darkWood} roughness={0.6} />
@@ -488,6 +456,141 @@ export default function VictorianEnvironment() {
                     <boxGeometry args={[0.65, 0.7, 0.1]} />
                     <meshStandardMaterial color={colors.burgundy} roughness={0.9} />
                 </mesh>
+            </group>
+            
+            {/* ===== READING TABLE - In front of chair ===== */}
+            <group position={[0, -0.5, 0.6]}>
+                {/* Table top */}
+                <mesh position={[0, 0.75, 0]} castShadow receiveShadow>
+                    <boxGeometry args={[2.0, 0.08, 1.0]} />
+                    <meshStandardMaterial color={colors.mediumWood} roughness={0.5} metalness={0.05} />
+                </mesh>
+                
+                {/* Table top edge trim */}
+                <mesh position={[0, 0.72, 0]}>
+                    <boxGeometry args={[2.05, 0.04, 1.05]} />
+                    <meshStandardMaterial color={colors.darkWood} roughness={0.6} />
+                </mesh>
+                
+                {/* Table legs - elegant turned legs */}
+                {[[-0.85, -0.4], [-0.85, 0.4], [0.85, -0.4], [0.85, 0.4]].map(([x, z], i) => (
+                    <group key={i} position={[x, 0, z]}>
+                        {/* Main leg */}
+                        <mesh position={[0, 0.35, 0]}>
+                            <cylinderGeometry args={[0.04, 0.05, 0.7, 8]} />
+                            <meshStandardMaterial color={colors.darkWood} roughness={0.6} />
+                        </mesh>
+                        {/* Decorative bulge */}
+                        <mesh position={[0, 0.35, 0]}>
+                            <sphereGeometry args={[0.06, 8, 8]} />
+                            <meshStandardMaterial color={colors.darkWood} roughness={0.6} />
+                        </mesh>
+                        {/* Foot */}
+                        <mesh position={[0, 0.02, 0]}>
+                            <sphereGeometry args={[0.05, 8, 8]} />
+                            <meshStandardMaterial color={colors.darkWood} roughness={0.6} />
+                        </mesh>
+                    </group>
+                ))}
+                
+                {/* Cross bars between legs for stability */}
+                <mesh position={[0, 0.2, -0.4]} rotation={[0, 0, 0]}>
+                    <boxGeometry args={[1.7, 0.04, 0.04]} />
+                    <meshStandardMaterial color={colors.darkWood} roughness={0.6} />
+                </mesh>
+                <mesh position={[0, 0.2, 0.4]} rotation={[0, 0, 0]}>
+                    <boxGeometry args={[1.7, 0.04, 0.04]} />
+                    <meshStandardMaterial color={colors.darkWood} roughness={0.6} />
+                </mesh>
+                
+                {/* ===== OPEN BOOK on table ===== */}
+                <group position={[0, 0.8, -0.05]} rotation={[-0.15, 0, 0]}>
+                    {/* Left page */}
+                    <mesh position={[-0.18, 0.01, 0]} rotation={[0, 0, 0.03]}>
+                        <boxGeometry args={[0.35, 0.02, 0.45]} />
+                        <meshStandardMaterial color="#f5f0e0" roughness={0.95} />
+                    </mesh>
+                    
+                    {/* Right page */}
+                    <mesh position={[0.18, 0.01, 0]} rotation={[0, 0, -0.03]}>
+                        <boxGeometry args={[0.35, 0.02, 0.45]} />
+                        <meshStandardMaterial color="#f5f0e0" roughness={0.95} />
+                    </mesh>
+                    
+                    {/* Book spine */}
+                    <mesh position={[0, 0.005, 0]}>
+                        <boxGeometry args={[0.03, 0.025, 0.46]} />
+                        <meshStandardMaterial color={colors.leather} roughness={0.7} />
+                    </mesh>
+                    
+                    {/* Book cover underneath - left */}
+                    <mesh position={[-0.19, -0.005, 0]} rotation={[0, 0, 0.05]}>
+                        <boxGeometry args={[0.36, 0.015, 0.47]} />
+                        <meshStandardMaterial color="#8B0000" roughness={0.7} />
+                    </mesh>
+                    
+                    {/* Book cover underneath - right */}
+                    <mesh position={[0.19, -0.005, 0]} rotation={[0, 0, -0.05]}>
+                        <boxGeometry args={[0.36, 0.015, 0.47]} />
+                        <meshStandardMaterial color="#8B0000" roughness={0.7} />
+                    </mesh>
+                    
+                    {/* Text lines on left page */}
+                    {[-0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15].map((z, i) => (
+                        <mesh key={`left-${i}`} position={[-0.18, 0.022, z]}>
+                            <boxGeometry args={[0.28, 0.001, 0.008]} />
+                            <meshStandardMaterial color="#3a3a3a" opacity={0.3} transparent />
+                        </mesh>
+                    ))}
+                    
+                    {/* Text lines on right page */}
+                    {[-0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15].map((z, i) => (
+                        <mesh key={`right-${i}`} position={[0.18, 0.022, z]}>
+                            <boxGeometry args={[0.28, 0.001, 0.008]} />
+                            <meshStandardMaterial color="#3a3a3a" opacity={0.3} transparent />
+                        </mesh>
+                    ))}
+                    
+                    {/* Page stack underneath (visible from the side) */}
+                    <mesh position={[-0.18, -0.015, 0]}>
+                        <boxGeometry args={[0.34, 0.02, 0.44]} />
+                        <meshStandardMaterial color="#e8e0cc" roughness={0.9} />
+                    </mesh>
+                    <mesh position={[0.18, -0.015, 0]}>
+                        <boxGeometry args={[0.34, 0.02, 0.44]} />
+                        <meshStandardMaterial color="#e8e0cc" roughness={0.9} />
+                    </mesh>
+                </group>
+                
+                {/* Quill pen holder on table */}
+                <mesh position={[0.7, 0.85, -0.2]}>
+                    <cylinderGeometry args={[0.04, 0.05, 0.12, 8]} />
+                    <meshStandardMaterial color={colors.brass} metalness={0.6} roughness={0.4} />
+                </mesh>
+                
+                {/* Quill pen */}
+                <mesh position={[0.7, 0.93, -0.2]} rotation={[0.3, 0, 0.1]}>
+                    <cylinderGeometry args={[0.005, 0.005, 0.25, 4]} />
+                    <meshStandardMaterial color="#f5f5f0" />
+                </mesh>
+                
+                {/* Ink bottle */}
+                <mesh position={[0.55, 0.82, -0.25]}>
+                    <cylinderGeometry args={[0.03, 0.03, 0.08, 8]} />
+                    <meshStandardMaterial color="#1a1a1a" />
+                </mesh>
+                
+                {/* Small stack of books on table */}
+                <group position={[-0.7, 0.8, 0.1]}>
+                    <mesh position={[0, 0.02, 0]}>
+                        <boxGeometry args={[0.25, 0.04, 0.35]} />
+                        <meshStandardMaterial color="#006400" roughness={0.8} />
+                    </mesh>
+                    <mesh position={[0.02, 0.06, -0.01]} rotation={[0, 0.1, 0]}>
+                        <boxGeometry args={[0.22, 0.04, 0.3]} />
+                        <meshStandardMaterial color="#4B0082" roughness={0.8} />
+                    </mesh>
+                </group>
             </group>
             
             {/* ===== BRIGHT LIGHTING FOR VISIBILITY ===== */}

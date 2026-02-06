@@ -27,7 +27,7 @@ function AppContent() {
   const mediaRecorderRef = useRef(null)
   const audioChunksRef = useRef([])
   const streamRef = useRef(null)
-  const { setAudioElement, setLipSyncData, setIsProcessing, setAnimationType, setTriggerIntro, introComplete } = useLipSyncContext()
+  const { setAudioElement, setLipSyncData, setIsProcessing, setAnimationType } = useLipSyncContext()
 
   // Check if file server is running on mount
   useEffect(() => {
@@ -586,26 +586,6 @@ function AppContent() {
     try {
       const userQuery = inputText.trim()
       
-      // Check if user said "hello" to trigger intro animation
-      const greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'greetings', 'bonjour', 'salut']
-      const isGreeting = greetings.some(g => userQuery.toLowerCase().includes(g))
-      
-      // If greeting and intro not complete, trigger intro and wait for it
-      if (isGreeting && !introComplete) {
-        console.log('👋 Greeting detected! Triggering avatar intro animation...')
-        setTriggerIntro(true)
-        
-        // Wait for intro animation to complete (avatar to arrive)
-        console.log('⏳ Waiting for avatar to complete intro animation...')
-        await new Promise((resolve) => {
-          // Wait 5 seconds for intro to complete (standing up ~3s + moving forward ~2s)
-          setTimeout(() => {
-            console.log('✅ Intro animation complete, now avatar will speak')
-            resolve()
-          }, 5000) // 5 seconds for full intro animation
-        })
-      }
-
       // Check for predefined responses first
       const predefined = getPredefinedResponse(userQuery)
       let responseText = null
@@ -720,7 +700,7 @@ function AppContent() {
       {/* 3D AVATAR CANVAS */}
       <div className="avatar-section">
         <Canvas 
-          camera={{ position: [0, 1.5, 3], fov: 45 }}
+          camera={{ position: [0, 1.8, 3.5], fov: 40 }}
           shadows
           style={{ background: 'linear-gradient(to bottom, #87ceeb 0%, #b8d4e3 100%)' }}
         >
