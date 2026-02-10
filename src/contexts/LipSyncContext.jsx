@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useState, useRef, useCallback } from 'react'
 
 const LipSyncContext = createContext(null)
 
@@ -8,6 +8,16 @@ export function LipSyncProvider({ children }) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [animationType, setAnimationType] = useState(null) // 'thanks', 'tzaghrita', or null
   const [morphTargetDictionary, setMorphTargetDictionary] = useState(null) // Store correct dictionary
+  const getAmplitudeRef = useRef(() => 0) // default returns 0
+
+  const setGetAmplitude = useCallback((fn) => {
+    getAmplitudeRef.current = fn
+  }, [])
+
+  const getAmplitude = useCallback(() => {
+    return getAmplitudeRef.current()
+  }, [])
+
   return (
     <LipSyncContext.Provider
       value={{
@@ -21,6 +31,8 @@ export function LipSyncProvider({ children }) {
         setAnimationType,
         morphTargetDictionary,
         setMorphTargetDictionary,
+        getAmplitude,
+        setGetAmplitude,
       }}
     >
       {children}
@@ -35,6 +47,3 @@ export function useLipSyncContext() {
   }
   return context
 }
-
-
-

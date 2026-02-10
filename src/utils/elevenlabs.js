@@ -54,9 +54,9 @@ export async function generateSpeechWithElevenLabs(text, options = {}) {
 
   const {
     voiceId = '21m00Tcm4TlvDq8ikWAM', // Rachel voice (female) - default
-    stability = 0.5,
-    similarityBoost = 0.75,
-    style = 0.0,
+    stability = 0.65,        // Higher = more consistent, less robotic variation
+    similarityBoost = 0.85,  // Higher = closer to natural vocal quality
+    style = 0.15,            // Slight stylistic inflection for natural emphasis
     useSpeakerBoost = true
   } = options
 
@@ -87,11 +87,11 @@ export async function generateSpeechWithElevenLabs(text, options = {}) {
     if (!response.ok) {
       const errorText = await response.text()
       let errorMessage = `ElevenLabs API error: ${response.status}`
-      
+
       try {
         const errorJson = JSON.parse(errorText)
         errorMessage = errorJson.detail?.message || errorJson.message || errorMessage
-        
+
         // Check for quota/credit errors
         if (errorMessage.includes('quota') || errorMessage.includes('credit') || errorMessage.includes('exceed')) {
           errorMessage = `ElevenLabs quota exceeded: ${errorMessage}. Please check your account credits or wait for quota reset.`
@@ -99,7 +99,7 @@ export async function generateSpeechWithElevenLabs(text, options = {}) {
       } catch {
         errorMessage = errorText || errorMessage
       }
-      
+
       throw new Error(errorMessage)
     }
 
@@ -109,7 +109,7 @@ export async function generateSpeechWithElevenLabs(text, options = {}) {
 
     // Convert MP3 to WAV for compatibility with Rhubarb
     const wavBlob = await convertMp3ToWav(mp3Blob)
-    
+
     return wavBlob
   } catch (error) {
     console.error('❌ ElevenLabs TTS Error:', error)
@@ -126,15 +126,15 @@ async function convertMp3ToWav(mp3Blob) {
   try {
     // Create audio context
     const audioContext = new (window.AudioContext || window.webkitAudioContext)()
-    
+
     // Decode MP3 to AudioBuffer
     const arrayBuffer = await mp3Blob.arrayBuffer()
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-    
+
     // Convert AudioBuffer to WAV
     const wav = audioBufferToWav(audioBuffer)
     const wavBlob = new Blob([wav], { type: 'audio/wav' })
-    
+
     audioContext.close()
     return wavBlob
   } catch (error) {
@@ -246,20 +246,20 @@ export async function speechToTextWithElevenLabs(audioBlob, options = {}) {
     if (!response.ok) {
       const errorText = await response.text()
       let errorMessage = `ElevenLabs STT API error: ${response.status}`
-      
+
       try {
         const errorJson = JSON.parse(errorText)
         errorMessage = errorJson.detail?.message || errorJson.message || errorMessage
       } catch {
         errorMessage = errorText || errorMessage
       }
-      
+
       throw new Error(errorMessage)
     }
 
     const result = await response.json()
     const transcribedText = result.text || ''
-    
+
     console.log(`✅ Transcription successful: "${transcribedText}"`)
     return transcribedText.trim()
   } catch (error) {

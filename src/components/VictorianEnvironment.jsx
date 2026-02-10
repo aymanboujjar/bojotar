@@ -15,6 +15,10 @@ export default function VictorianEnvironment() {
     const dust2Ref = useRef()
     const dust3Ref = useRef()
     const dust4Ref = useRef()
+    // Smoke particle refs (4 particles per candle × 3 candles = 12)
+    const smokeRefs = useRef([])
+    // Extra dust motes
+    const extraDustRefs = useRef([])
 
     // Animate candle flames, pendulum, dust motes
     useFrame((state) => {
@@ -58,6 +62,43 @@ export default function VictorianEnvironment() {
                 ref.current.position.x = -0.5 + Math.sin(time * 0.3 + offset) * 0.8
                 ref.current.position.y = 2.0 + Math.sin(time * 0.2 + offset) * 0.6
                 ref.current.position.z = -3.0 + Math.cos(time * 0.15 + offset) * 0.4
+                // Fade opacity for more organic feel
+                if (ref.current.material) {
+                    ref.current.material.opacity = 0.25 + Math.sin(time * 0.5 + offset) * 0.15
+                }
+            }
+        })
+
+        // Animate smoke particles — drift upward with noise-like paths
+        smokeRefs.current.forEach((ref, i) => {
+            if (ref) {
+                const offset = i * 2.3
+                const cycle = (time * 0.4 + offset) % 3.0 // Reset every 3 seconds
+                const progress = cycle / 3.0
+                // Rise upward
+                ref.position.y = progress * 1.2
+                // Drift sideways with noise
+                ref.position.x = Math.sin(time * 1.5 + offset) * 0.08 + Math.sin(time * 3 + offset * 2) * 0.03
+                ref.position.z = Math.cos(time * 1.2 + offset) * 0.06
+                // Scale down and fade as it rises
+                const scale = 1 + progress * 2
+                ref.scale.set(scale, scale, scale)
+                if (ref.material) {
+                    ref.material.opacity = (1 - progress) * 0.12
+                }
+            }
+        })
+
+        // Animate extra dust motes — slow floating throughout room
+        extraDustRefs.current.forEach((ref, i) => {
+            if (ref) {
+                const offset = i * 3.1
+                ref.position.x = -2 + Math.sin(time * 0.08 + offset) * 4
+                ref.position.y = 1.5 + Math.sin(time * 0.12 + offset) * 1.5
+                ref.position.z = -2 + Math.cos(time * 0.06 + offset) * 3
+                if (ref.material) {
+                    ref.material.opacity = 0.15 + Math.sin(time * 0.3 + offset) * 0.1
+                }
             }
         })
     })
@@ -809,31 +850,84 @@ export default function VictorianEnvironment() {
                 </mesh>
             ))}
 
+            {/* ===== EXTRA FLOATING DUST MOTES throughout room ===== */}
+            {Array.from({ length: 8 }).map((_, i) => (
+                <mesh
+                    key={`edust-${i}`}
+                    ref={el => { extraDustRefs.current[i] = el }}
+                    position={[-2 + i * 0.5, 1.5 + Math.sin(i) * 0.5, -2 + Math.cos(i) * 1.5]}
+                >
+                    <sphereGeometry args={[0.006, 4, 4]} />
+                    <meshBasicMaterial color="#ffe8bb" transparent opacity={0.2} />
+                </mesh>
+            ))}
+
+            {/* ===== CANDLE SMOKE PARTICLES ===== */}
+            {/* 4 particles per candle position */}
+            {[[-1.8, 0.5, -2], [1.8, 0.5, -2], [0, 0.75, 0.15]].map((pos, ci) =>
+                Array.from({ length: 4 }).map((_, pi) => (
+                    <mesh
+                        key={`smoke-${ci}-${pi}`}
+                        ref={el => { smokeRefs.current[ci * 4 + pi] = el }}
+                        position={[pos[0], pos[1], pos[2]]}
+                    >
+                        <sphereGeometry args={[0.015, 6, 6]} />
+                        <meshBasicMaterial color="#998877" transparent opacity={0.08} depthWrite={false} />
+                    </mesh>
+                ))
+            )}
+
             {/* ===== LIGHTING — Atmospheric & Realistic ===== */}
             {/* Soft ambient — low to let candles dominate */}
-            <ambientLight intensity={0.25} color="#fff5e6" />
+            <ambientLight intensity={0.2} color="#fff5e6" />
 
             {/* Main key light — warm, from above-right */}
             <directionalLight
                 position={[2, 4, 3]}
-                intensity={0.9}
+                intensity={0.8}
                 color="#ffeedd"
                 castShadow
+                shadow-mapSize-width={2048}
+                shadow-mapSize-height={2048}
+                shadow-bias={-0.0003}
+                shadow-normalBias={0.02}
+                shadow-camera-left={-6}
+                shadow-camera-right={6}
+                shadow-camera-top={6}
+                shadow-camera-bottom={-2}
             />
 
             {/* Window moonlight — cool accent from behind */}
             <directionalLight
                 position={[0, 3, -5]}
-                intensity={0.25}
+                intensity={0.2}
                 color="#8899bb"
             />
 
             {/* Subtle fill from camera direction */}
             <pointLight
                 position={[0, 3, 2]}
-                intensity={0.3}
+                intensity={0.25}
                 color="#fff8f0"
                 distance={10}
+            />
+
+            {/* Hearth glow — warm ground-level light simulating a fireplace */}
+            <pointLight
+                position={[0, 0.1, -3]}
+                intensity={1.5}
+                color="#ff6622"
+                distance={4}
+                decay={2}
+            />
+
+            {/* Rim light for avatar — subtle backlight for depth separation */}
+            <pointLight
+                position={[0, 2.5, -3]}
+                intensity={0.4}
+                color="#ffd4a0"
+                distance={5}
+                decay={1.5}
             />
         </group>
     )

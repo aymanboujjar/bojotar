@@ -8,6 +8,7 @@ import { LipSyncProvider, useLipSyncContext } from './contexts/LipSyncContext'
 import { processLipSync } from './utils/lipSync'
 import { generateSpeechWithElevenLabs, speechToTextWithElevenLabs } from './utils/elevenlabs'
 import { saveAudioFile, sanitizeFilename } from './utils/audioSaver'
+import { createAudioAnalyser } from './utils/audioAnalyser'
 import './App.css'
 
 function AppContent() {
@@ -27,7 +28,9 @@ function AppContent() {
   const mediaRecorderRef = useRef(null)
   const audioChunksRef = useRef([])
   const streamRef = useRef(null)
-  const { setAudioElement, setLipSyncData, setIsProcessing, setAnimationType } = useLipSyncContext()
+  const { setAudioElement, setLipSyncData, setIsProcessing, setAnimationType, setGetAmplitude } = useLipSyncContext()
+  const analyserRef = useRef(null)
+  const ambientAudioRef = useRef(null)
 
   // Check if file server is running on mount
   useEffect(() => {
@@ -39,6 +42,79 @@ function AppContent() {
         console.warn('⚠️ File server not running. Start it with: npm run server')
         console.warn('   Or run both together with: npm run dev:full')
       })
+  }, [])
+
+  // Start ambient Victorian room sounds
+  useEffect(() => {
+    // Create a subtle ambient soundscape (clock ticking + room tone)
+    const ambientCtx = new (window.AudioContext || window.webkitAudioContext)()
+    const masterGain = ambientCtx.createGain()
+    masterGain.gain.value = 0.04 // Very quiet — background ambiance only
+    masterGain.connect(ambientCtx.destination)
+
+    // Realistic tick-tock: alternating pitch with noise burst + resonant body
+    let tickCount = 0
+    let tickInterval = null
+    const startTicking = () => {
+      tickInterval = setInterval(() => {
+        const now = ambientCtx.currentTime
+        const isTock = tickCount % 2 === 1
+
+        // Short noise burst for the "click" attack
+        const bufferSize = Math.floor(ambientCtx.sampleRate * 0.008) // 8ms
+        const noiseBuffer = ambientCtx.createBuffer(1, bufferSize, ambientCtx.sampleRate)
+        const data = noiseBuffer.getChannelData(0)
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.15))
+        }
+        const noiseSrc = ambientCtx.createBufferSource()
+        noiseSrc.buffer = noiseBuffer
+        const noiseGain = ambientCtx.createGain()
+        noiseGain.gain.setValueAtTime(0.3, now)
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.015)
+        // Bandpass to shape attack
+        const noiseFilter = ambientCtx.createBiquadFilter()
+        noiseFilter.type = 'bandpass'
+        noiseFilter.frequency.value = isTock ? 2800 : 3200
+        noiseFilter.Q.value = 2
+        noiseSrc.connect(noiseFilter)
+        noiseFilter.connect(noiseGain)
+        noiseGain.connect(masterGain)
+        noiseSrc.start(now)
+        noiseSrc.stop(now + 0.015)
+
+        // Resonant body tone — decays quickly
+        const osc = ambientCtx.createOscillator()
+        const oscGain = ambientCtx.createGain()
+        osc.type = 'sine'
+        osc.frequency.value = isTock ? 620 : 720 // alternating pitch
+        oscGain.gain.setValueAtTime(0.08, now)
+        oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04)
+        osc.connect(oscGain)
+        oscGain.connect(masterGain)
+        osc.start(now)
+        osc.stop(now + 0.04)
+
+        tickCount++
+      }, 1000)
+    }
+    
+    // Start after user interaction (autoplay policy)
+    const resumeAudio = () => {
+      if (ambientCtx.state === 'suspended') ambientCtx.resume()
+      startTicking()
+      document.removeEventListener('click', resumeAudio)
+    }
+    document.addEventListener('click', resumeAudio)
+    if (ambientCtx.state === 'running') startTicking()
+
+    ambientAudioRef.current = { ctx: ambientCtx, interval: tickInterval }
+
+    return () => {
+      if (tickInterval) clearInterval(tickInterval)
+      ambientCtx.close().catch(() => {})
+      document.removeEventListener('click', resumeAudio)
+    }
   }, [])
 
   // Cleanup recording stream on unmount
@@ -150,9 +226,9 @@ function AppContent() {
         // Generate speech with ElevenLabs
         audioBlob = await generateSpeechWithElevenLabs(truncatedText, {
           voiceId: '21m00Tcm4TlvDq8ikWAM', // Rachel voice (female) - natural and clear
-          stability: 0.5,
-          similarityBoost: 0.75,
-          style: 0.0,
+          stability: 0.65,
+          similarityBoost: 0.85,
+          style: 0.15,
           useSpeakerBoost: true
         })
 
@@ -215,6 +291,17 @@ function AppContent() {
       // This ensures lip sync hook can access both audio and data simultaneously
       setAudioElement(audio)
       console.log('✅ Audio element and lip sync data ready and synchronized')
+
+      // Connect audio analyser for room reverb + amplitude
+      try {
+        if (analyserRef.current) analyserRef.current.cleanup()
+        const analyserChain = createAudioAnalyser(audio)
+        analyserRef.current = analyserChain
+        setGetAmplitude(analyserChain.getAmplitude)
+        console.log('✅ Audio analyser with room reverb connected')
+      } catch (analyserError) {
+        console.warn('⚠️ Could not connect audio analyser:', analyserError.message)
+      }
 
       // Small delay to ensure everything is fully initialized
       await new Promise(resolve => setTimeout(resolve, 50))
@@ -701,9 +788,12 @@ function AppContent() {
       <div className="avatar-section">
         <Canvas 
           camera={{ position: [0, 1.8, 3.5], fov: 40 }}
-          shadows
+          shadows='soft'
+          gl={{ antialias: true }}
           style={{ background: '#1a1008' }}
         >
+          {/* Atmospheric fog for depth and candle glow diffusion */}
+          <fog attach="fog" args={['#1a0e06', 4, 18]} />
           {/* Victorian Era Environment - Ada Lovelace's Study */}
           <VictorianEnvironment />
           
