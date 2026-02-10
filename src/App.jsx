@@ -702,7 +702,7 @@ function AppContent() {
         <Canvas 
           camera={{ position: [0, 1.8, 3.5], fov: 40 }}
           shadows
-          style={{ background: 'linear-gradient(to bottom, #87ceeb 0%, #b8d4e3 100%)' }}
+          style={{ background: '#1a1008' }}
         >
           {/* Victorian Era Environment - Ada Lovelace's Study */}
           <VictorianEnvironment />
