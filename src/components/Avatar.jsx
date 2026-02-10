@@ -26,9 +26,7 @@ export default function Avatar() {
     })
     const saluteEndCheckRef = useRef(null)
 
-    // Sitting animation refs
-    const sittingActionRef = useRef(null)
-    const sittingTalkingActionRef = useRef(null)
+    // (default animation only — no separate talking animation)
 
     // Facial expression refs
     const nextBlinkTimeRef = useRef(0)
@@ -41,6 +39,13 @@ export default function Avatar() {
     const headBoneRef = useRef(null)
     const spineBoneRef = useRef(null)
     const neckBoneRef = useRef(null)
+    const rightArmBoneRef = useRef(null)
+    const rightForearmBoneRef = useRef(null)
+    const rightHandBoneRef = useRef(null)
+    const rightShoulderBoneRef = useRef(null)
+
+    // Store initial bone rotations to prevent accumulation
+    const initialBoneRotations = useRef({})
 
     // Eye saccade / micro-expression refs
     const nextSaccadeTimeRef = useRef(0)
@@ -561,86 +566,33 @@ export default function Avatar() {
             if (name.includes('head') && !name.includes('end')) headBoneRef.current = bone
             if ((name.includes('spine1') || name.includes('spine2')) && !spineBoneRef.current) spineBoneRef.current = bone
             if (name.includes('neck') && !name.includes('end')) neckBoneRef.current = bone
+            if (name.includes('rightarm') && !name.includes('end')) rightArmBoneRef.current = bone
+            if (name.includes('rightforearm') && !name.includes('end')) rightForearmBoneRef.current = bone
+            if (name.includes('righthand') && !name.includes('end')) rightHandBoneRef.current = bone
+            if (name.includes('rightshoulder') && !name.includes('end')) rightShoulderBoneRef.current = bone
         }
-        if (headBoneRef.current) console.log('✅ Head bone for micro-motion:', headBoneRef.current.name)
-        if (spineBoneRef.current) console.log('✅ Spine bone for breathing:', spineBoneRef.current.name)
+        // Save initial bone rotations/positions to prevent accumulation
+        if (headBoneRef.current) {
+            initialBoneRotations.current.head = {
+                x: headBoneRef.current.rotation.x,
+                y: headBoneRef.current.rotation.y,
+                z: headBoneRef.current.rotation.z
+            }
+            console.log('✅ Head bone for micro-motion:', headBoneRef.current.name)
+        }
+        if (spineBoneRef.current) {
+            initialBoneRotations.current.spineY = spineBoneRef.current.position.y
+            console.log('✅ Spine bone for breathing:', spineBoneRef.current.name)
+        }
+        if (neckBoneRef.current) {
+            initialBoneRotations.current.neck = {
+                z: neckBoneRef.current.rotation.z
+            }
+        }
+        if (rightHandBoneRef.current) console.log('✅ Right hand bone:', rightHandBoneRef.current.name)
     }, [scene])
 
-    // ===== LOAD SITTING IDLE + SITTING TALKING FBX ANIMATIONS =====
-    useEffect(() => {
-        if (!mixerRef.current) return
-
-        const mixer = mixerRef.current
-        const fbxLoader = new FBXLoader()
-
-        const filterMorphTracksFromClip = (clip) => {
-            const filteredTracks = clip.tracks.filter(track => {
-                const isMorphTrack = track.name && (
-                    track.name.includes('.morphTargetInfluences') ||
-                    track.name.toLowerCase().includes('viseme') ||
-                    track.name.toLowerCase().includes('mouth') ||
-                    track.name.toLowerCase().includes('jaw')
-                )
-                return !isMorphTrack
-            })
-            return new THREE.AnimationClip(clip.name || 'filtered', clip.duration, filteredTracks)
-        }
-
-        // Load Sitting Idle
-        fbxLoader.load('/models/Sitting Idle.fbx', (fbx) => {
-            console.log('✅ Sitting Idle FBX loaded')
-
-            if (fbx.animations && fbx.animations.length > 0) {
-                const sittingClip = filterMorphTracksFromClip(fbx.animations[0])
-                sittingClip.name = 'SittingIdle'
-                console.log('✅ Sitting idle clip:', sittingClip.name, sittingClip.duration, 'seconds')
-
-                // Stop default animation - avatar should stay sitting
-                if (defaultActionRef.current) {
-                    defaultActionRef.current.stop()
-                }
-
-                const sittingAction = mixer.clipAction(sittingClip)
-                sittingAction.setLoop(THREE.LoopRepeat, Infinity)
-                sittingAction.play()
-                sittingActionRef.current = sittingAction
-                console.log('🎬 Playing Sitting Idle animation (permanent)')
-            }
-        }, undefined, (error) => {
-            console.error('❌ Error loading Sitting Idle.fbx:', error)
-        })
-
-        // Load Talking
-        fbxLoader.load('/models/Talking.fbx', (fbx) => {
-            console.log('✅ Talking FBX loaded')
-
-            if (fbx.animations && fbx.animations.length > 0) {
-                const talkingClip = filterMorphTracksFromClip(fbx.animations[0])
-                talkingClip.name = 'Talking'
-                console.log('✅ Talking clip:', talkingClip.name, talkingClip.duration, 'seconds')
-
-                const talkingAction = mixer.clipAction(talkingClip)
-                talkingAction.setLoop(THREE.LoopRepeat, Infinity)
-                talkingAction.setEffectiveWeight(0)
-                talkingAction.play()
-                sittingTalkingActionRef.current = talkingAction
-                console.log('🎬 Talking animation ready (weight 0)')
-            }
-        }, undefined, (error) => {
-            console.error('❌ Error loading Talking.fbx:', error)
-        })
-
-    }, [scene])
-
-    // Keep sitting animations always running
-    useEffect(() => {
-        if (sittingActionRef.current && !sittingActionRef.current.isRunning()) {
-            sittingActionRef.current.play()
-        }
-        if (sittingTalkingActionRef.current && !sittingTalkingActionRef.current.isRunning()) {
-            sittingTalkingActionRef.current.play()
-        }
-    }, [animationType, audioElement, lipSyncData])
+    // Default GLB animation runs continuously — no separate talking animation needed
 
     // Update animation mixer every frame AND apply lip sync + facial expressions AFTER mixer
     // This is CRITICAL - lip sync MUST run after mixer.update() or mixer will overwrite our values!
@@ -657,20 +609,7 @@ export default function Avatar() {
         // Get real-time audio amplitude for lip sync modulation
         const amplitude = isAudioPlaying ? getAmplitude() : 0
 
-        // ===== BLEND between Sitting Idle and Sitting Talking =====
-        if (sittingActionRef.current && sittingTalkingActionRef.current) {
-            const blendSpeed = 5.0 * delta
-            const idleW = sittingActionRef.current.getEffectiveWeight()
-            const talkW = sittingTalkingActionRef.current.getEffectiveWeight()
-
-            if (isAudioPlaying) {
-                sittingActionRef.current.setEffectiveWeight(Math.max(0, idleW - blendSpeed))
-                sittingTalkingActionRef.current.setEffectiveWeight(Math.min(1, talkW + blendSpeed))
-            } else {
-                sittingTalkingActionRef.current.setEffectiveWeight(Math.max(0, talkW - blendSpeed))
-                sittingActionRef.current.setEffectiveWeight(Math.min(1, idleW + blendSpeed))
-            }
-        }
+        // Default animation keeps running — lip sync + micro-motions handle speaking naturally
 
         // ===== HELPER: apply morph target by name across all face meshes =====
         const applyMorph = (morphName, targetValue, speed) => {
@@ -690,34 +629,35 @@ export default function Avatar() {
             })
         }
 
-        // ===== BONE-BASED MICRO-MOTIONS =====
+        // ===== BONE-BASED MICRO-MOTIONS (using absolute offsets, not accumulating +=) =====
 
-        // --- Breathing: very subtle sine on spine bone Y (barely visible) ---
-        if (spineBoneRef.current) {
-            const breathCycle = Math.sin(elapsedTime * 0.4 * Math.PI * 2) // ~0.4 Hz — slow, natural
-            spineBoneRef.current.position.y += breathCycle * 0.0006 // barely perceptible
+        // --- Breathing: very subtle sine on spine bone Y ---
+        if (spineBoneRef.current && initialBoneRotations.current.spineY !== undefined) {
+            const breathCycle = Math.sin(elapsedTime * 0.4 * Math.PI * 2)
+            spineBoneRef.current.position.y = initialBoneRotations.current.spineY + breathCycle * 0.0006
         }
 
         // --- Head sway: layered sine on head bone rotation ---
-        if (headBoneRef.current) {
-            const headSwayX = Math.sin(elapsedTime * 0.3) * 0.015 + Math.sin(elapsedTime * 0.7) * 0.008 // ~1° nod
-            const headSwayY = Math.sin(elapsedTime * 0.25 + 1.0) * 0.012 + Math.sin(elapsedTime * 0.6 + 0.5) * 0.006 // ~0.8° turn
-            const headSwayZ = Math.sin(elapsedTime * 0.2 + 2.0) * 0.005 // very subtle tilt
+        if (headBoneRef.current && initialBoneRotations.current.head) {
+            const base = initialBoneRotations.current.head
+            const headSwayX = Math.sin(elapsedTime * 0.3) * 0.015 + Math.sin(elapsedTime * 0.7) * 0.008
+            const headSwayY = Math.sin(elapsedTime * 0.25 + 1.0) * 0.012 + Math.sin(elapsedTime * 0.6 + 0.5) * 0.006
+            const headSwayZ = Math.sin(elapsedTime * 0.2 + 2.0) * 0.005
 
-            // Speaking head nod — emphatic dip on vowel phonemes
+            // Speaking head nod
             headNodRef.current += headNodVelocityRef.current * delta
-            headNodVelocityRef.current *= 0.92 // damping
+            headNodVelocityRef.current *= 0.92
             if (Math.abs(headNodRef.current) < 0.001) headNodRef.current = 0
 
-            headBoneRef.current.rotation.x += headSwayX + headNodRef.current
-            headBoneRef.current.rotation.y += headSwayY
-            headBoneRef.current.rotation.z += headSwayZ
+            headBoneRef.current.rotation.x = base.x + headSwayX + headNodRef.current
+            headBoneRef.current.rotation.y = base.y + headSwayY
+            headBoneRef.current.rotation.z = base.z + headSwayZ
         }
 
         // --- Shoulder micro-shift ---
-        if (neckBoneRef.current) {
+        if (neckBoneRef.current && initialBoneRotations.current.neck) {
             const shoulderShift = Math.sin(elapsedTime * 0.35 + 1.5) * 0.004
-            neckBoneRef.current.rotation.z += shoulderShift
+            neckBoneRef.current.rotation.z = initialBoneRotations.current.neck.z + shoulderShift
         }
 
         // ===== 1. EYE BLINKING SYSTEM (always active) =====
@@ -1116,11 +1056,11 @@ export default function Avatar() {
     useLipSync(headRef)
 
     return (
-        <group ref={groupRef} position={[0, 0.9, -2]}>
+        <group ref={groupRef} position={[-0.5, -0.5, -2]}>
             <primitive
                 object={scene}
                 scale={1.5}
-                position={[0, -1.3, 1]}
+                position={[0, 0, 0]}
             />
         </group>
     )

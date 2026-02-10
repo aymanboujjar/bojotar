@@ -44,77 +44,10 @@ function AppContent() {
       })
   }, [])
 
-  // Start ambient Victorian room sounds
+  // Start ambient Victorian room sounds (Silence)
   useEffect(() => {
-    // Create a subtle ambient soundscape (clock ticking + room tone)
-    const ambientCtx = new (window.AudioContext || window.webkitAudioContext)()
-    const masterGain = ambientCtx.createGain()
-    masterGain.gain.value = 0.04 // Very quiet — background ambiance only
-    masterGain.connect(ambientCtx.destination)
-
-    // Realistic tick-tock: alternating pitch with noise burst + resonant body
-    let tickCount = 0
-    let tickInterval = null
-    const startTicking = () => {
-      tickInterval = setInterval(() => {
-        const now = ambientCtx.currentTime
-        const isTock = tickCount % 2 === 1
-
-        // Short noise burst for the "click" attack
-        const bufferSize = Math.floor(ambientCtx.sampleRate * 0.008) // 8ms
-        const noiseBuffer = ambientCtx.createBuffer(1, bufferSize, ambientCtx.sampleRate)
-        const data = noiseBuffer.getChannelData(0)
-        for (let i = 0; i < bufferSize; i++) {
-          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.15))
-        }
-        const noiseSrc = ambientCtx.createBufferSource()
-        noiseSrc.buffer = noiseBuffer
-        const noiseGain = ambientCtx.createGain()
-        noiseGain.gain.setValueAtTime(0.3, now)
-        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.015)
-        // Bandpass to shape attack
-        const noiseFilter = ambientCtx.createBiquadFilter()
-        noiseFilter.type = 'bandpass'
-        noiseFilter.frequency.value = isTock ? 2800 : 3200
-        noiseFilter.Q.value = 2
-        noiseSrc.connect(noiseFilter)
-        noiseFilter.connect(noiseGain)
-        noiseGain.connect(masterGain)
-        noiseSrc.start(now)
-        noiseSrc.stop(now + 0.015)
-
-        // Resonant body tone — decays quickly
-        const osc = ambientCtx.createOscillator()
-        const oscGain = ambientCtx.createGain()
-        osc.type = 'sine'
-        osc.frequency.value = isTock ? 620 : 720 // alternating pitch
-        oscGain.gain.setValueAtTime(0.08, now)
-        oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04)
-        osc.connect(oscGain)
-        oscGain.connect(masterGain)
-        osc.start(now)
-        osc.stop(now + 0.04)
-
-        tickCount++
-      }, 1000)
-    }
-    
-    // Start after user interaction (autoplay policy)
-    const resumeAudio = () => {
-      if (ambientCtx.state === 'suspended') ambientCtx.resume()
-      startTicking()
-      document.removeEventListener('click', resumeAudio)
-    }
-    document.addEventListener('click', resumeAudio)
-    if (ambientCtx.state === 'running') startTicking()
-
-    ambientAudioRef.current = { ctx: ambientCtx, interval: tickInterval }
-
-    return () => {
-      if (tickInterval) clearInterval(tickInterval)
-      ambientCtx.close().catch(() => {})
-      document.removeEventListener('click', resumeAudio)
-    }
+    // Clock sound removed as requested. 
+    // We could add low-level library ambiance (page turns, distant muffled sounds) here later if desired.
   }, [])
 
   // Cleanup recording stream on unmount
@@ -787,13 +720,13 @@ function AppContent() {
       {/* 3D AVATAR CANVAS */}
       <div className="avatar-section">
         <Canvas 
-          camera={{ position: [0, 1.8, 3.5], fov: 40 }}
+          camera={{ position: [0, 1.5, 4], fov: 42 }}
           shadows='soft'
           gl={{ antialias: true }}
-          style={{ background: '#1a1008' }}
+          style={{ background: '#2a1a0e' }}
         >
-          {/* Atmospheric fog for depth and candle glow diffusion */}
-          <fog attach="fog" args={['#1a0e06', 4, 18]} />
+          {/* Warm candlelit fog — subtle, keeps room feeling bright */}
+          <fog attach="fog" args={['#3a2810', 6, 22]} />
           {/* Victorian Era Environment - Ada Lovelace's Study */}
           <VictorianEnvironment />
           
