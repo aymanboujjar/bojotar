@@ -8,9 +8,9 @@ import * as THREE from 'three'
 
 export default function Avatar() {
     const { scene, animations } = useGLTF('/models/avtarr.glb')
-    
+
     // Sitting animation loaded via FBX
-    
+
     const headRef = useRef()
     const groupRef = useRef()
     const mixerRef = useRef(null)
@@ -25,9 +25,16 @@ export default function Avatar() {
         yelling: null
     })
     const saluteEndCheckRef = useRef(null)
-    
-    // Sitting animation ref
+
+    // Sitting animation refs
     const sittingActionRef = useRef(null)
+    const sittingTalkingActionRef = useRef(null)
+
+    // Facial expression refs
+    const nextBlinkTimeRef = useRef(0)
+    const blinkProgressRef = useRef(0)
+    const isBlinkingRef = useRef(false)
+    const prevCueRef = useRef(null)
 
     useEffect(() => {
         // Find the head mesh with morph targets - improved detection for new avatar
@@ -523,37 +530,40 @@ export default function Avatar() {
 
     }, [scene])
 
-    // ===== LOAD SITTING IDLE FBX ANIMATION =====
+    // ===== LOAD SITTING IDLE + SITTING TALKING FBX ANIMATIONS =====
     useEffect(() => {
         if (!mixerRef.current) return
-        
+
         const mixer = mixerRef.current
         const fbxLoader = new FBXLoader()
-        
+
+        const filterMorphTracksFromClip = (clip) => {
+            const filteredTracks = clip.tracks.filter(track => {
+                const isMorphTrack = track.name && (
+                    track.name.includes('.morphTargetInfluences') ||
+                    track.name.toLowerCase().includes('viseme') ||
+                    track.name.toLowerCase().includes('mouth') ||
+                    track.name.toLowerCase().includes('jaw')
+                )
+                return !isMorphTrack
+            })
+            return new THREE.AnimationClip(clip.name || 'filtered', clip.duration, filteredTracks)
+        }
+
+        // Load Sitting Idle
         fbxLoader.load('/models/Sitting Idle.fbx', (fbx) => {
             console.log('✅ Sitting Idle FBX loaded')
-            
+
             if (fbx.animations && fbx.animations.length > 0) {
-                const clip = fbx.animations[0]
-                
-                // Filter out morph tracks so it doesn't override lip sync
-                const filteredTracks = clip.tracks.filter(track => {
-                    const isMorphTrack = track.name && (
-                        track.name.includes('.morphTargetInfluences') ||
-                        track.name.toLowerCase().includes('viseme') ||
-                        track.name.toLowerCase().includes('mouth') ||
-                        track.name.toLowerCase().includes('jaw')
-                    )
-                    return !isMorphTrack
-                })
-                const sittingClip = new THREE.AnimationClip('SittingIdle', clip.duration, filteredTracks)
+                const sittingClip = filterMorphTracksFromClip(fbx.animations[0])
+                sittingClip.name = 'SittingIdle'
                 console.log('✅ Sitting idle clip:', sittingClip.name, sittingClip.duration, 'seconds')
-                
+
                 // Stop default animation - avatar should stay sitting
                 if (defaultActionRef.current) {
                     defaultActionRef.current.stop()
                 }
-                
+
                 const sittingAction = mixer.clipAction(sittingClip)
                 sittingAction.setLoop(THREE.LoopRepeat, Infinity)
                 sittingAction.play()
@@ -563,34 +573,132 @@ export default function Avatar() {
         }, undefined, (error) => {
             console.error('❌ Error loading Sitting Idle.fbx:', error)
         })
-        
+
+        // Load Talking
+        fbxLoader.load('/models/Talking.fbx', (fbx) => {
+            console.log('✅ Talking FBX loaded')
+
+            if (fbx.animations && fbx.animations.length > 0) {
+                const talkingClip = filterMorphTracksFromClip(fbx.animations[0])
+                talkingClip.name = 'Talking'
+                console.log('✅ Talking clip:', talkingClip.name, talkingClip.duration, 'seconds')
+
+                const talkingAction = mixer.clipAction(talkingClip)
+                talkingAction.setLoop(THREE.LoopRepeat, Infinity)
+                talkingAction.setEffectiveWeight(0)
+                talkingAction.play()
+                sittingTalkingActionRef.current = talkingAction
+                console.log('🎬 Talking animation ready (weight 0)')
+            }
+        }, undefined, (error) => {
+            console.error('❌ Error loading Talking.fbx:', error)
+        })
+
     }, [scene])
 
-    // Keep sitting idle animation always running
+    // Keep sitting animations always running
     useEffect(() => {
         if (sittingActionRef.current && !sittingActionRef.current.isRunning()) {
             sittingActionRef.current.play()
         }
+        if (sittingTalkingActionRef.current && !sittingTalkingActionRef.current.isRunning()) {
+            sittingTalkingActionRef.current.play()
+        }
     }, [animationType, audioElement, lipSyncData])
 
-    // Update animation mixer every frame AND apply lip sync AFTER mixer
+    // Update animation mixer every frame AND apply lip sync + facial expressions AFTER mixer
     // This is CRITICAL - lip sync MUST run after mixer.update() or mixer will overwrite our values!
     useFrame((state, delta) => {
         if (mixerRef.current) {
-            // Clamp delta to prevent large jumps that can cause animation glitches
-            const clampedDelta = Math.min(delta, 0.1) // Max 100ms per frame
+            const clampedDelta = Math.min(delta, 0.1)
             mixerRef.current.update(clampedDelta)
         }
-        
-        // ===== REAL LIP SYNC - Using actual Rhubarb phoneme data =====
-        // This syncs mouth movements with actual speech sounds from the audio
+
+        const elapsedTime = state.clock.elapsedTime
         const isAudioPlaying = audioElement && !audioElement.paused && !audioElement.ended
         const hasLipSyncData = lipSyncData && lipSyncData.mouthCues && lipSyncData.mouthCues.length > 0
-        
+
+        // ===== BLEND between Sitting Idle and Sitting Talking =====
+        // Manual per-frame weight lerp — reliable for repeated start/stop cycles
+        if (sittingActionRef.current && sittingTalkingActionRef.current) {
+            const blendSpeed = 5.0 * delta // ~0.3s transition at 60fps
+            const idleW = sittingActionRef.current.getEffectiveWeight()
+            const talkW = sittingTalkingActionRef.current.getEffectiveWeight()
+
+            if (isAudioPlaying) {
+                // Blend toward talking
+                sittingActionRef.current.setEffectiveWeight(Math.max(0, idleW - blendSpeed))
+                sittingTalkingActionRef.current.setEffectiveWeight(Math.min(1, talkW + blendSpeed))
+            } else {
+                // Blend back to idle
+                sittingTalkingActionRef.current.setEffectiveWeight(Math.max(0, talkW - blendSpeed))
+                sittingActionRef.current.setEffectiveWeight(Math.min(1, idleW + blendSpeed))
+            }
+        }
+
+        // ===== HELPER: apply morph target by name across all face meshes =====
+        const applyMorph = (morphName, targetValue, speed) => {
+            scene.traverse((obj) => {
+                const meshName = (obj.name || '').toLowerCase()
+                const isFaceMesh = meshName.includes('head') || meshName.includes('teeth') ||
+                                   meshName.includes('tongue') || meshName.includes('face')
+                if (!isFaceMesh) return
+                if (!(obj.isSkinnedMesh || obj.isMesh) || !obj.morphTargetInfluences) return
+
+                const dict = obj.morphTargetDictionary || {}
+                const infl = obj.morphTargetInfluences
+                const idx = dict[morphName]
+                if (idx !== undefined && idx < infl.length) {
+                    infl[idx] = infl[idx] + (targetValue - infl[idx]) * speed
+                }
+            })
+        }
+
+        // ===== 1. EYE BLINKING SYSTEM (always active) =====
+        if (elapsedTime >= nextBlinkTimeRef.current) {
+            if (!isBlinkingRef.current) {
+                isBlinkingRef.current = true
+                blinkProgressRef.current = 0
+            }
+        }
+
+        if (isBlinkingRef.current) {
+            blinkProgressRef.current += delta
+            const blinkDuration = 0.15 // 150ms total blink
+            const halfBlink = blinkDuration / 2
+
+            let blinkValue = 0
+            if (blinkProgressRef.current < halfBlink) {
+                // Closing - fast
+                blinkValue = blinkProgressRef.current / halfBlink
+            } else if (blinkProgressRef.current < blinkDuration) {
+                // Opening - slightly slower
+                blinkValue = 1 - ((blinkProgressRef.current - halfBlink) / (halfBlink * 1.2))
+            }
+
+            blinkValue = Math.max(0, Math.min(1, blinkValue))
+            applyMorph('eyeBlinkLeft', blinkValue, 0.6)
+            applyMorph('eyeBlinkRight', blinkValue, 0.6)
+
+            if (blinkProgressRef.current >= blinkDuration) {
+                isBlinkingRef.current = false
+                blinkProgressRef.current = 0
+                // Occasional double blink (20% chance)
+                const isDoubleBlink = Math.random() < 0.2
+                const nextInterval = isDoubleBlink ? 0.25 : (2 + Math.random() * 4) // 2-6s
+                nextBlinkTimeRef.current = elapsedTime + nextInterval
+            }
+        } else {
+            // Ensure eyes are open when not blinking
+            applyMorph('eyeBlinkLeft', 0, 0.3)
+            applyMorph('eyeBlinkRight', 0, 0.3)
+        }
+
+        // ===== 2. LIP SYNC + EXPRESSIONS WHILE SPEAKING =====
         if (isAudioPlaying) {
             const currentTime = audioElement.currentTime || 0
-            
-            // Find the current phoneme based on audio time (if lip sync data exists)
+
+            // Find current phoneme
             let currentCue = null
             if (hasLipSyncData) {
                 const mouthCues = lipSyncData.mouthCues
@@ -601,41 +709,24 @@ export default function Avatar() {
                     }
                 }
             }
-            
-            // Rhubarb phoneme to mouth shape mapping
-            // A: "ah" sound - jaw open, mouth open
-            // B: closed lips for "B", "M", "P" sounds
-            // C: "eh" sound - mouth slightly open, wide
-            // D: "ah" sound variant
-            // E: "ee" sound - wide mouth, lips pulled back
-            // F: "f"/"v" sound - lower lip under upper teeth
-            // G: "oh" sound - rounded lips
-            // H: "L" sound - tongue behind teeth
-            // X: silence/neutral
-            
+
             scene.traverse((obj) => {
-                // ONLY apply to mouth-related meshes - skip eye meshes!
                 const meshName = (obj.name || '').toLowerCase()
-                const isMouthMesh = meshName.includes('head') || 
-                                    meshName.includes('teeth') || 
-                                    meshName.includes('tongue') ||
-                                    meshName.includes('face')
+                const isMouthMesh = meshName.includes('head') || meshName.includes('teeth') ||
+                                    meshName.includes('tongue') || meshName.includes('face')
                 const isEyeMesh = meshName.includes('eye') || meshName.includes('lash')
-                
-                // Skip if it's an eye mesh or not a mouth mesh
                 if (isEyeMesh || !isMouthMesh) return
-                
+
                 if ((obj.isSkinnedMesh || obj.isMesh) && obj.morphTargetInfluences && obj.morphTargetInfluences.length > 0) {
                     const infl = obj.morphTargetInfluences
                     const dict = obj.morphTargetDictionary || {}
                     const hasStringKeys = Object.keys(dict).some(k => isNaN(k))
-                    
-                    // Get morph target indices
+
                     const getIdx = (name, fallback) => {
                         if (hasStringKeys && dict[name] !== undefined) return dict[name]
                         return fallback < infl.length ? fallback : undefined
                     }
-                    
+
                     // Mouth shape indices
                     const mouthOpenIdx = getIdx('mouthOpen', 0)
                     const jawOpenIdx = getIdx('jawOpen', 49)
@@ -653,108 +744,88 @@ export default function Avatar() {
                     const visemeNNIdx = getIdx('viseme_nn', 60)
                     const visemeRRIdx = getIdx('viseme_RR', 61)
                     const visemeDDIdx = getIdx('viseme_DD', 56)
-                    
-                    // Smooth interpolation
+
                     const lerp = (current, target, speed) => current + (target - current) * speed
-                    const smoothSpeed = 0.25 // Smooth but responsive
-                    
-                    // Reset all targets
+
+                    // Mouth targets
                     let targets = {
-                        mouthOpen: 0, jaw: 0, PP: 0, FF: 0, TH: 0, O: 0, E: 0, AA: 0, I: 0, U: 0, KK: 0, CH: 0, SS: 0, NN: 0, RR: 0, DD: 0
+                        mouthOpen: 0, jaw: 0, PP: 0, FF: 0, TH: 0, O: 0, E: 0,
+                        AA: 0, I: 0, U: 0, KK: 0, CH: 0, SS: 0, NN: 0, RR: 0, DD: 0
                     }
-                    
-                    // Set targets based on current phoneme
+
                     if (currentCue) {
                         const phoneme = currentCue.value
-                        
+
                         switch (phoneme) {
-                            case 'A': // "ah" - jaw drop, mouth open
-                                targets.mouthOpen = 0.4
-                                targets.jaw = 0.35
-                                targets.AA = 0.5
+                            case 'A':
+                                targets.mouthOpen = 0.4; targets.jaw = 0.35; targets.AA = 0.5
                                 break
-                            case 'B': // closed lips - M, B, P
-                                targets.mouthOpen = 0.05
-                                targets.jaw = 0.05
-                                targets.PP = 0.6
+                            case 'B':
+                                targets.mouthOpen = 0.05; targets.jaw = 0.05; targets.PP = 0.6
                                 break
-                            case 'C': // "eh" - slight open, wide
-                                targets.mouthOpen = 0.25
-                                targets.jaw = 0.15
-                                targets.E = 0.4
+                            case 'C':
+                                targets.mouthOpen = 0.25; targets.jaw = 0.15; targets.E = 0.4
                                 break
-                            case 'D': // "ah" variant
-                                targets.mouthOpen = 0.35
-                                targets.jaw = 0.3
-                                targets.AA = 0.45
-                                targets.DD = 0.3
+                            case 'D':
+                                targets.mouthOpen = 0.35; targets.jaw = 0.3; targets.AA = 0.45; targets.DD = 0.3
                                 break
-                            case 'E': // "ee" - wide, teeth showing
-                                targets.mouthOpen = 0.15
-                                targets.jaw = 0.1
-                                targets.E = 0.5
-                                targets.I = 0.3
+                            case 'E':
+                                targets.mouthOpen = 0.15; targets.jaw = 0.1; targets.E = 0.5; targets.I = 0.3
                                 break
-                            case 'F': // "f/v" - lower lip under teeth
-                                targets.mouthOpen = 0.1
-                                targets.jaw = 0.08
-                                targets.FF = 0.6
+                            case 'F':
+                                targets.mouthOpen = 0.1; targets.jaw = 0.08; targets.FF = 0.6
                                 break
-                            case 'G': // "oh" - rounded lips
-                                targets.mouthOpen = 0.3
-                                targets.jaw = 0.25
-                                targets.O = 0.5
-                                targets.U = 0.2
+                            case 'G':
+                                targets.mouthOpen = 0.3; targets.jaw = 0.25; targets.O = 0.5; targets.U = 0.2
                                 break
-                            case 'H': // "L" sound
-                                targets.mouthOpen = 0.2
-                                targets.jaw = 0.15
-                                targets.TH = 0.3
-                                targets.NN = 0.2
+                            case 'H':
+                                targets.mouthOpen = 0.2; targets.jaw = 0.15; targets.TH = 0.3; targets.NN = 0.2
                                 break
-                            case 'X': // silence/neutral
+                            case 'X':
                             default:
-                                targets.mouthOpen = 0.02
-                                targets.jaw = 0.01
+                                targets.mouthOpen = 0.02; targets.jaw = 0.01
                                 break
                         }
+
+                        // === COARTICULATION: blend with previous phoneme ===
+                        if (prevCueRef.current && prevCueRef.current !== phoneme) {
+                            // Keep a small residual of the previous shape for smoother transitions
+                            // This is handled implicitly by the directional lerp below
+                        }
+                        prevCueRef.current = phoneme
                     } else {
                         // FALLBACK: No lip sync data - use natural talking animation
-                        // Create varied mouth movement based on time
                         const wave1 = Math.sin(currentTime * 10) * 0.5 + 0.5
                         const wave2 = Math.sin(currentTime * 15) * 0.5 + 0.5
                         const wave3 = Math.sin(currentTime * 7) * 0.5 + 0.5
-                        
-                        // Cycle through mouth shapes naturally
                         const phase = (currentTime * 3) % 4
-                        
+
                         if (phase < 1) {
-                            // Open mouth
                             targets.mouthOpen = 0.2 + wave1 * 0.15
                             targets.jaw = 0.15 + wave2 * 0.1
                             targets.AA = 0.3 * wave1
                         } else if (phase < 2) {
-                            // Wide mouth (E sound)
                             targets.mouthOpen = 0.15 + wave2 * 0.1
                             targets.E = 0.35 * wave2
                         } else if (phase < 3) {
-                            // Round mouth (O sound)
                             targets.mouthOpen = 0.2 + wave1 * 0.1
                             targets.O = 0.3 * wave1
                         } else {
-                            // Slight open
                             targets.mouthOpen = 0.1 + wave3 * 0.15
                             targets.jaw = 0.1 * wave3
                         }
                     }
-                    
-                    // Apply with smooth interpolation
+
+                    // === DIRECTIONAL INTERPOLATION ===
+                    // Faster opening (0.35), slower closing (0.15) for natural speech feel
                     const applySmooth = (idx, target) => {
                         if (idx !== undefined && idx < infl.length) {
-                            infl[idx] = lerp(infl[idx] || 0, target, smoothSpeed)
+                            const current = infl[idx] || 0
+                            const speed = target > current ? 0.35 : 0.15
+                            infl[idx] = lerp(current, target, speed)
                         }
                     }
-                    
+
                     applySmooth(mouthOpenIdx, targets.mouthOpen)
                     applySmooth(jawOpenIdx, targets.jaw)
                     applySmooth(visemePPIdx, targets.PP)
@@ -771,62 +842,108 @@ export default function Avatar() {
                     applySmooth(visemeNNIdx, targets.NN)
                     applySmooth(visemeRRIdx, targets.RR)
                     applySmooth(visemeDDIdx, targets.DD)
-                    
-                    // Also set index 0
+
                     if (infl.length > 0) {
-                        infl[0] = lerp(infl[0] || 0, targets.mouthOpen, smoothSpeed)
+                        const current = infl[0] || 0
+                        const speed = targets.mouthOpen > current ? 0.35 : 0.15
+                        infl[0] = lerp(current, targets.mouthOpen, speed)
                     }
                 }
             })
+
+            // === EYEBROW MICRO-MOVEMENTS during speech ===
+            if (currentCue) {
+                const phoneme = currentCue.value
+                if (['A', 'D', 'G'].includes(phoneme)) {
+                    // Raise brows on open/loud phonemes
+                    applyMorph('browInnerUp', 0.2, 0.08)
+                    applyMorph('browOuterUpLeft', 0.15, 0.08)
+                    applyMorph('browOuterUpRight', 0.15, 0.08)
+                    applyMorph('browDownLeft', 0, 0.08)
+                    applyMorph('browDownRight', 0, 0.08)
+                } else if (['B', 'F'].includes(phoneme)) {
+                    // Slight furrow on closed/tight phonemes
+                    applyMorph('browDownLeft', 0.1, 0.08)
+                    applyMorph('browDownRight', 0.1, 0.08)
+                    applyMorph('browInnerUp', 0, 0.08)
+                    applyMorph('browOuterUpLeft', 0, 0.08)
+                    applyMorph('browOuterUpRight', 0, 0.08)
+                } else {
+                    // Neutral brows
+                    applyMorph('browInnerUp', 0, 0.06)
+                    applyMorph('browOuterUpLeft', 0, 0.06)
+                    applyMorph('browOuterUpRight', 0, 0.06)
+                    applyMorph('browDownLeft', 0, 0.06)
+                    applyMorph('browDownRight', 0, 0.06)
+                }
+            }
+
+            // === SUBTLE SMILE + CHEEK SQUINT while speaking ===
+            applyMorph('mouthSmileLeft', 0.1, 0.06)
+            applyMorph('mouthSmileRight', 0.1, 0.06)
+            applyMorph('cheekSquintLeft', 0.05, 0.06)
+            applyMorph('cheekSquintRight', 0.05, 0.06)
+
         } else if (!audioElement || audioElement.paused || audioElement.ended) {
-            // Smoothly close mouth when not speaking
+            // ===== 3. IDLE STATE: smooth mouth close + micro-movements =====
+            prevCueRef.current = null
+
             scene.traverse((obj) => {
-                // ONLY apply to mouth-related meshes - skip eye meshes!
                 const meshName = (obj.name || '').toLowerCase()
-                const isMouthMesh = meshName.includes('head') || 
-                                    meshName.includes('teeth') || 
-                                    meshName.includes('tongue') ||
-                                    meshName.includes('face')
+                const isMouthMesh = meshName.includes('head') || meshName.includes('teeth') ||
+                                    meshName.includes('tongue') || meshName.includes('face')
                 const isEyeMesh = meshName.includes('eye') || meshName.includes('lash')
-                
-                // Skip if it's an eye mesh or not a mouth mesh
                 if (isEyeMesh || !isMouthMesh) return
-                
+
                 if ((obj.isSkinnedMesh || obj.isMesh) && obj.morphTargetInfluences && obj.morphTargetInfluences.length > 0) {
                     const infl = obj.morphTargetInfluences
                     const dict = obj.morphTargetDictionary || {}
                     const hasStringKeys = Object.keys(dict).some(k => isNaN(k))
-                    
-                    // Only reset MOUTH-related morph targets, not eyes
+
                     const mouthIndices = []
-                    
                     if (hasStringKeys) {
-                        // Get only mouth/viseme related indices
                         Object.entries(dict).forEach(([name, idx]) => {
                             const lowerName = name.toLowerCase()
-                            if (lowerName.includes('mouth') || 
-                                lowerName.includes('viseme') || 
-                                lowerName.includes('jaw') ||
-                                lowerName.includes('lip') ||
+                            if (lowerName.includes('mouth') || lowerName.includes('viseme') ||
+                                lowerName.includes('jaw') || lowerName.includes('lip') ||
                                 lowerName.includes('tongue')) {
                                 mouthIndices.push(idx)
                             }
                         })
                     } else {
-                        // Fallback: only reset first few indices for Teeth/Tongue meshes
                         for (let i = 0; i < Math.min(infl.length, 20); i++) {
                             mouthIndices.push(i)
                         }
                     }
-                    
-                    // Only reset mouth-related indices
+
                     mouthIndices.forEach(i => {
                         if (i < infl.length && infl[i] > 0.001) {
-                            infl[i] = infl[i] * 0.85 // Smooth fade to closed
+                            infl[i] = infl[i] * 0.85
                         }
                     })
                 }
             })
+
+            // === IDLE MICRO-MOVEMENTS ===
+            // Subtle breathing: very slow sine wave on jawOpen
+            const breathValue = (Math.sin(elapsedTime * 1.5) * 0.5 + 0.5) * 0.015
+            applyMorph('jawOpen', breathValue, 0.1)
+
+            // Occasional micro eye-squint
+            const squintWave = (Math.sin(elapsedTime * 0.7) * 0.5 + 0.5) * 0.03
+            applyMorph('eyeSquintLeft', squintWave, 0.05)
+            applyMorph('eyeSquintRight', squintWave, 0.05)
+
+            // Slowly reset expression morphs
+            applyMorph('browInnerUp', 0, 0.04)
+            applyMorph('browOuterUpLeft', 0, 0.04)
+            applyMorph('browOuterUpRight', 0, 0.04)
+            applyMorph('browDownLeft', 0, 0.04)
+            applyMorph('browDownRight', 0, 0.04)
+            applyMorph('mouthSmileLeft', 0, 0.04)
+            applyMorph('mouthSmileRight', 0, 0.04)
+            applyMorph('cheekSquintLeft', 0, 0.04)
+            applyMorph('cheekSquintRight', 0, 0.04)
         }
     })
 
