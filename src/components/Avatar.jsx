@@ -272,7 +272,7 @@ export default function Avatar() {
                 }
             }
 
-            const ampMod = 0.6 + amplitude * 0.5
+            const ampMod = 0.8 + amplitude * 0.3
 
             scene.traverse((obj) => {
                 const meshName = (obj.name || '').toLowerCase()
@@ -308,40 +308,63 @@ export default function Avatar() {
                     const visemeRRIdx = getIdx('viseme_RR', 61)
                     const visemeDDIdx = getIdx('viseme_DD', 56)
 
+                    // Additional lip morph indices for realistic shapes
+                    const mouthPuckerIdx = getIdx('mouthPucker', undefined)
+                    const mouthFunnelIdx = getIdx('mouthFunnel', undefined)
+                    const mouthStretchLIdx = getIdx('mouthStretchLeft', undefined)
+                    const mouthStretchRIdx = getIdx('mouthStretchRight', undefined)
+                    const mouthShrugUpperIdx = getIdx('mouthShrugUpper', undefined)
+                    const mouthShrugLowerIdx = getIdx('mouthShrugLower', undefined)
+                    const mouthCloseIdx = getIdx('mouthClose', undefined)
+                    const mouthLowerDownLIdx = getIdx('mouthLowerDownLeft', undefined)
+                    const mouthLowerDownRIdx = getIdx('mouthLowerDownRight', undefined)
+                    const mouthUpperUpLIdx = getIdx('mouthUpperUpLeft', undefined)
+                    const mouthUpperUpRIdx = getIdx('mouthUpperUpRight', undefined)
+
                     let targets = {
                         mouthOpen: 0, jaw: 0, PP: 0, FF: 0, TH: 0, O: 0, E: 0,
-                        AA: 0, I: 0, U: 0, KK: 0, CH: 0, SS: 0, NN: 0, RR: 0, DD: 0
+                        AA: 0, I: 0, U: 0, KK: 0, CH: 0, SS: 0, NN: 0, RR: 0, DD: 0,
+                        pucker: 0, funnel: 0, stretchL: 0, stretchR: 0,
+                        shrugUpper: 0, shrugLower: 0, close: 0,
+                        lowerDownL: 0, lowerDownR: 0, upperUpL: 0, upperUpR: 0
                     }
 
                     if (currentCue) {
                         switch (currentCue.value) {
                             case 'A':
-                                targets.mouthOpen = 0.45; targets.jaw = 0.4; targets.AA = 0.55
+                                targets.jaw = 0.3; targets.mouthOpen = 0.35; targets.AA = 0.4
+                                targets.lowerDownL = 0.12; targets.lowerDownR = 0.12
                                 break
                             case 'B':
-                                targets.mouthOpen = 0.05; targets.jaw = 0.05; targets.PP = 0.65
+                                targets.jaw = 0.03; targets.mouthOpen = 0.0; targets.PP = 0.45
+                                targets.close = 0.25
                                 break
                             case 'C':
-                                targets.mouthOpen = 0.3; targets.jaw = 0.18; targets.E = 0.45
+                                targets.jaw = 0.15; targets.mouthOpen = 0.2; targets.E = 0.3
+                                targets.stretchL = 0.12; targets.stretchR = 0.12
                                 break
                             case 'D':
-                                targets.mouthOpen = 0.4; targets.jaw = 0.35; targets.AA = 0.5; targets.DD = 0.35
+                                targets.jaw = 0.25; targets.mouthOpen = 0.3; targets.AA = 0.35; targets.DD = 0.2
+                                targets.lowerDownL = 0.1; targets.lowerDownR = 0.1
                                 break
                             case 'E':
-                                targets.mouthOpen = 0.18; targets.jaw = 0.12; targets.E = 0.55; targets.I = 0.35
+                                targets.jaw = 0.1; targets.mouthOpen = 0.12; targets.E = 0.35; targets.I = 0.2
+                                targets.stretchL = 0.18; targets.stretchR = 0.18
                                 break
                             case 'F':
-                                targets.mouthOpen = 0.12; targets.jaw = 0.1; targets.FF = 0.65
+                                targets.jaw = 0.08; targets.mouthOpen = 0.05; targets.FF = 0.4
+                                targets.upperUpL = 0.08; targets.upperUpR = 0.08
                                 break
                             case 'G':
-                                targets.mouthOpen = 0.35; targets.jaw = 0.3; targets.O = 0.55; targets.U = 0.25
+                                targets.jaw = 0.2; targets.mouthOpen = 0.22; targets.O = 0.35; targets.U = 0.15
+                                targets.pucker = 0.18; targets.funnel = 0.2
                                 break
                             case 'H':
-                                targets.mouthOpen = 0.22; targets.jaw = 0.18; targets.TH = 0.35; targets.NN = 0.25
+                                targets.jaw = 0.12; targets.mouthOpen = 0.15; targets.TH = 0.25; targets.NN = 0.15
                                 break
                             case 'X':
                             default:
-                                targets.mouthOpen = 0.02; targets.jaw = 0.01
+                                targets.jaw = 0.01; targets.mouthOpen = 0.01
                                 break
                         }
 
@@ -349,33 +372,34 @@ export default function Avatar() {
                         targets.jaw *= ampMod
                         prevCueRef.current = currentCue.value
                     } else {
-                        // Fallback: amplitude-based mouth movement
+                        // Fallback: gentle amplitude-based movement
                         const wave1 = Math.sin(currentTime * 10) * 0.5 + 0.5
                         const wave2 = Math.sin(currentTime * 15) * 0.5 + 0.5
                         const phase = (currentTime * 3) % 4
 
                         if (phase < 1) {
-                            targets.mouthOpen = (0.2 + wave1 * 0.15) * ampMod
-                            targets.jaw = (0.15 + wave2 * 0.1) * ampMod
-                            targets.AA = 0.3 * wave1
+                            targets.mouthOpen = (0.15 + wave1 * 0.12) * ampMod
+                            targets.jaw = (0.1 + wave2 * 0.08) * ampMod
+                            targets.AA = 0.2 * wave1
                         } else if (phase < 2) {
-                            targets.mouthOpen = (0.15 + wave2 * 0.1) * ampMod
-                            targets.E = 0.35 * wave2
+                            targets.mouthOpen = (0.1 + wave2 * 0.1) * ampMod
+                            targets.E = 0.2 * wave2
                         } else if (phase < 3) {
-                            targets.mouthOpen = (0.2 + wave1 * 0.1) * ampMod
-                            targets.O = 0.3 * wave1
+                            targets.mouthOpen = (0.12 + wave1 * 0.1) * ampMod
+                            targets.O = 0.2 * wave1
+                            targets.pucker = 0.08 * wave1
                         } else {
-                            targets.mouthOpen = (0.1 + wave1 * 0.15) * ampMod
-                            targets.jaw = 0.1 * wave1
+                            targets.mouthOpen = (0.08 + wave1 * 0.1) * ampMod
+                            targets.jaw = 0.08 * wave1
                         }
                     }
 
-                    // Smoother interpolation — faster open, gradual close, no overshoot
+                    // Smooth interpolation
                     const applySmooth = (idx, target) => {
                         if (idx !== undefined && idx < infl.length) {
                             const current = infl[idx] || 0
                             const diff = target - current
-                            const speed = diff > 0 ? 0.35 : 0.18
+                            const speed = diff > 0 ? 0.4 : 0.2
                             infl[idx] = Math.max(0, Math.min(1, current + diff * speed))
                         }
                     }
@@ -396,6 +420,18 @@ export default function Avatar() {
                     applySmooth(visemeNNIdx, targets.NN)
                     applySmooth(visemeRRIdx, targets.RR)
                     applySmooth(visemeDDIdx, targets.DD)
+                    // Additional lip shape morphs for realism
+                    applySmooth(mouthPuckerIdx, targets.pucker)
+                    applySmooth(mouthFunnelIdx, targets.funnel)
+                    applySmooth(mouthStretchLIdx, targets.stretchL)
+                    applySmooth(mouthStretchRIdx, targets.stretchR)
+                    applySmooth(mouthShrugUpperIdx, targets.shrugUpper)
+                    applySmooth(mouthShrugLowerIdx, targets.shrugLower)
+                    applySmooth(mouthCloseIdx, targets.close)
+                    applySmooth(mouthLowerDownLIdx, targets.lowerDownL)
+                    applySmooth(mouthLowerDownRIdx, targets.lowerDownR)
+                    applySmooth(mouthUpperUpLIdx, targets.upperUpL)
+                    applySmooth(mouthUpperUpRIdx, targets.upperUpR)
                 }
             })
 
