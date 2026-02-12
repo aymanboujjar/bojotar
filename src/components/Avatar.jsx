@@ -1,563 +1,138 @@
 import { useGLTF } from '@react-three/drei'
 import { useEffect, useRef } from 'react'
-import { useLipSync } from '../hooks/useLipSync'
 import { useLipSyncContext } from '../contexts/LipSyncContext'
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
 export default function Avatar() {
     const { scene, animations } = useGLTF('/models/avtarr.glb')
 
-    // Sitting animation loaded via FBX
-
     const headRef = useRef()
     const groupRef = useRef()
     const mixerRef = useRef(null)
-    const currentActionRef = useRef(null)
-    const defaultActionRef = useRef(null)
-    const nextActionRef = useRef(null)
     const avatarSkeletonRef = useRef(null)
     const { animationType, audioElement, lipSyncData, setMorphTargetDictionary, getAmplitude } = useLipSyncContext()
-    const animationsRef = useRef({
-        salute: null,
-        offensiveIdle: null,
-        yelling: null
-    })
-    const saluteEndCheckRef = useRef(null)
-
-    // (default animation only — no separate talking animation)
 
     // Facial expression refs
     const nextBlinkTimeRef = useRef(0)
     const blinkProgressRef = useRef(0)
     const isBlinkingRef = useRef(false)
     const prevCueRef = useRef(null)
-    const prevCue2Ref = useRef(null) // 2-phoneme coarticulation history
 
     // Bone-based micro-motion refs
     const headBoneRef = useRef(null)
     const spineBoneRef = useRef(null)
     const neckBoneRef = useRef(null)
-    const rightArmBoneRef = useRef(null)
-    const rightForearmBoneRef = useRef(null)
-    const rightHandBoneRef = useRef(null)
-    const rightShoulderBoneRef = useRef(null)
 
-    // Store initial bone rotations to prevent accumulation
+    // Store initial bone rotations
     const initialBoneRotations = useRef({})
 
-    // Eye saccade / micro-expression refs
-    const nextSaccadeTimeRef = useRef(0)
-    const saccadeTargetRef = useRef({ x: 0, y: 0 })
-    const nextMicroExpressionRef = useRef(3)
-    const microExpressionTypeRef = useRef(null)
-    const microExpressionProgressRef = useRef(0)
-
     // Jaw bounce physics
-    const jawBounceRef = useRef(0)
-    const jawVelocityRef = useRef(0)
     const prevJawOpenRef = useRef(0)
 
-    // Head nod on speech emphasis
-    const headNodRef = useRef(0)
-    const headNodVelocityRef = useRef(0)
-
     useEffect(() => {
-        // Find the head mesh with morph targets - improved detection for new avatar
-        console.log('🔍 GLTF Scene info:', {
-            name: scene.name,
-            type: scene.type,
-            userData: scene.userData,
-            hasAnimations: animations?.length > 0,
-            animationCount: animations?.length
-        })
-        
         const meshesWithMorphs = []
-        
+
         scene.traverse((obj) => {
-            // Check for SkinnedMesh OR Mesh with morph targets
             const hasMorphTargets = obj.morphTargetDictionary && Object.keys(obj.morphTargetDictionary).length > 0
-            
+
             if ((obj.isSkinnedMesh || obj.isMesh) && hasMorphTargets) {
-                const morphCount = Object.keys(obj.morphTargetDictionary).length
-                
-                // Special logging for Teeth_Mesh or Head_Mesh to find where names are stored
-                if (obj.name && (obj.name.toLowerCase().includes('teeth') || obj.name.toLowerCase().includes('head'))) {
-                    console.log(`🔍 Detailed structure for ${obj.name}:`, {
-                        name: obj.name,
-                        type: obj.type,
-                        morphTargetDictionary: obj.morphTargetDictionary,
-                        morphTargetInfluences: obj.morphTargetInfluences?.slice(0, 5),
-                        userData: obj.userData,
-                        geometryUserData: obj.geometry?.userData,
-                        geometryName: obj.geometry?.name,
-                        geometryType: obj.geometry?.type,
-                        parentName: obj.parent?.name,
-                        parentUserData: obj.parent?.userData,
-                        hasMorphAttributes: !!obj.geometry?.morphAttributes,
-                        morphAttributeKeys: obj.geometry?.morphAttributes ? Object.keys(obj.geometry.morphAttributes) : []
-                    })
-                }
-                
                 meshesWithMorphs.push({
                     mesh: obj,
                     name: obj.name,
-                    morphCount: morphCount,
-                    morphTargets: Object.keys(obj.morphTargetDictionary),
+                    morphCount: Object.keys(obj.morphTargetDictionary).length,
                     type: obj.isSkinnedMesh ? 'SkinnedMesh' : 'Mesh'
                 })
-                
-                // Find the skeleton for animation retargeting
+
                 if (obj.isSkinnedMesh && obj.skeleton && !avatarSkeletonRef.current) {
                     avatarSkeletonRef.current = obj.skeleton
-                    console.log('✅ Found avatar skeleton:', obj.name)
-                    console.log('📋 Skeleton bones count:', obj.skeleton.bones.length)
                 }
             }
         })
-        
-        // Log all meshes with morph targets
-        console.log(`🔍 Found ${meshesWithMorphs.length} mesh(es) with morph targets:`)
-        meshesWithMorphs.forEach(({ name, morphCount, morphTargets, type }) => {
-            console.log(`  - ${name} (${type}): ${morphCount} morph targets`)
-            console.log(`    Targets:`, morphTargets.slice(0, 20)) // Show first 20
-        })
-        
-        // Select the mesh with best viseme support
-        // Priority: 1) Teeth_Mesh (best visemes), 2) Head_Mesh, 3) Most morph targets
+
+        // Select mesh with best viseme support
         let selectedMesh = null
-        
-        // Debug: show all mesh names before searching
-        console.log('🔍 Available mesh names:', meshesWithMorphs.map(m => m.name))
-        
-        // CRITICAL: Select ALL mouth-related meshes for MAXIMUM lip sync visibility!
-        // Apply lip sync to Head, Teeth, AND Tongue for ultra-visible movement
         const mouthMeshes = meshesWithMorphs.filter(m => {
             const lowerName = m.name.toLowerCase()
-            return lowerName.includes('head') || 
-                   lowerName.includes('teeth') || 
-                   lowerName.includes('tongue') ||
-                   lowerName.includes('face')
+            return lowerName.includes('head') || lowerName.includes('teeth') ||
+                   lowerName.includes('tongue') || lowerName.includes('face')
         })
-        
-        console.log(`🔍 Found ${mouthMeshes.length} mouth-related meshes:`, mouthMeshes.map(m => m.name))
-        
-        // Use Head_Mesh as primary (has most morph targets)
+
         const headMesh = mouthMeshes.find(m => m.name.toLowerCase().includes('head'))
-        
+
         if (headMesh) {
             selectedMesh = headMesh.mesh
-            // Store ALL mouth meshes in an array for multi-mesh lip sync
             selectedMesh.additionalLipSyncMeshes = mouthMeshes
                 .filter(m => m.name !== headMesh.name)
                 .map(m => m.mesh)
-            console.log(`✅ Selected Head_Mesh as primary + ${selectedMesh.additionalLipSyncMeshes.length} additional meshes`)
-            console.log(`   Primary: ${headMesh.name}`)
-            console.log(`   Additional: ${selectedMesh.additionalLipSyncMeshes.map(m => m.name).join(', ')}`)
         } else if (mouthMeshes.length > 0) {
-            // Fallback to first mouth mesh
             selectedMesh = mouthMeshes[0].mesh
             selectedMesh.additionalLipSyncMeshes = mouthMeshes.slice(1).map(m => m.mesh)
-            console.log(`✅ Selected ${mouthMeshes[0].name} as primary + ${selectedMesh.additionalLipSyncMeshes.length} additional`)
-        } else {
-            // Last resort: use mesh with most morph targets
-            const meshWithMostMorphs = meshesWithMorphs[0]
-            if (meshWithMostMorphs) {
-                selectedMesh = meshWithMostMorphs.mesh
-                selectedMesh.additionalLipSyncMeshes = []
-                console.log(`✅ Selected mesh with most morph targets: ${meshWithMostMorphs.name}`)
-            }
+        } else if (meshesWithMorphs.length > 0) {
+            selectedMesh = meshesWithMorphs[0].mesh
+            selectedMesh.additionalLipSyncMeshes = []
         }
-        
+
         if (selectedMesh) {
             headRef.current = selectedMesh
-            console.log('✅ Lip sync mesh set:', selectedMesh.name)
-            
-            // Check if dictionary has numeric keys and needs rebuild
+
             const dictKeys = Object.keys(selectedMesh.morphTargetDictionary)
-            console.log('📋 Initial morph target dictionary keys:', dictKeys.slice(0, 10))
-            
             const hasNumericKeys = dictKeys.length > 0 && !isNaN(dictKeys[0])
-            
+
             if (hasNumericKeys) {
-                console.log('🔧 Attempting to rebuild morphTargetDictionary with proper names')
-                
-                // Try to find the morph target names from the GLTF structure
                 let names = null
-                
-                // Search in various possible locations
                 if (selectedMesh.geometry?.userData?.targetNames) {
                     names = selectedMesh.geometry.userData.targetNames
-                    console.log('✅ Found names in geometry.userData.targetNames')
                 } else if (selectedMesh.userData?.targetNames) {
                     names = selectedMesh.userData.targetNames
-                    console.log('✅ Found names in mesh.userData.targetNames')
                 } else if (selectedMesh.parent?.userData?.targetNames) {
                     names = selectedMesh.parent.userData.targetNames
-                    console.log('✅ Found names in parent.userData.targetNames')
-                } else if (selectedMesh.geometry?.morphAttributes?.position) {
-                    // Try to extract from the GLTF extras or name properties
-                    const morphAttrs = selectedMesh.geometry.morphAttributes.position
-                    console.log('🔍 Found morphAttributes.position array, length:', morphAttrs.length)
-                    
-                    // Check if there's a _names array (sometimes GLTF loaders add this)
-                    if (selectedMesh.geometry.morphAttributes._names) {
-                        names = selectedMesh.geometry.morphAttributes._names
-                        console.log('✅ Found names in morphAttributes._names')
-                    }
                 }
-                
+
                 if (names && Array.isArray(names) && names.length > 0) {
                     const newDict = {}
-                    names.forEach((name, index) => {
-                        newDict[name] = index
-                    })
+                    names.forEach((name, index) => { newDict[name] = index })
                     selectedMesh.morphTargetDictionary = newDict
-                    console.log('✅ Dictionary rebuilt successfully!')
-                    console.log('📋 New dictionary keys:', Object.keys(newDict).slice(0, 10))
-                    // Store in context so useLipSync can use it (mesh dict gets corrupted by mixer)
                     setMorphTargetDictionary({ ...newDict })
-                    console.log('💾 Saved correct dictionary to context')
-                } else {
-                    console.error('❌ Could not find morph target names to rebuild dictionary')
-                    console.log('Available data:', {
-                        geometryUserData: selectedMesh.geometry?.userData,
-                        meshUserData: selectedMesh.userData,
-                        parentUserData: selectedMesh.parent?.userData,
-                        hasMorphAttributes: !!selectedMesh.geometry?.morphAttributes
-                    })
                 }
             } else {
-                console.log('✅ Dictionary already has proper string names')
-                // Store in context so useLipSync can use it (mesh dict gets corrupted by mixer)
                 setMorphTargetDictionary({ ...selectedMesh.morphTargetDictionary })
-                console.log('💾 Saved correct dictionary to context')
             }
-            
-            // Ensure morphTargetInfluences exists
+
             if (!selectedMesh.morphTargetInfluences) {
                 const morphCount = Object.keys(selectedMesh.morphTargetDictionary).length
                 selectedMesh.morphTargetInfluences = new Array(morphCount).fill(0)
-                console.log('✅ Initialized morphTargetInfluences array:', morphCount)
             }
-            
-            // Log viseme targets
-            const finalDictKeys = Object.keys(selectedMesh.morphTargetDictionary)
-            const visemeTargets = finalDictKeys.filter(name =>
-                typeof name === 'string' && (
-                    name.toLowerCase().includes('viseme') ||
-                    name.toLowerCase().includes('mouth') ||
-                    name.toLowerCase().includes('jaw')
-                )
-            )
-            
-            if (visemeTargets.length > 0) {
-                console.log('👄 Found viseme-like targets:', visemeTargets)
-            } else {
-                console.log('⚠️ No viseme-like targets found in dictionary keys:', dictKeys.slice(0, 10))
-            }
-        } else {
-            console.warn('⚠️ No mesh found with morph targets!')
-            console.warn('Available meshes:', meshesWithMorphs.map(m => m.name))
         }
 
-        // Create animation mixer
+        // Create animation mixer and play default animation
         mixerRef.current = new THREE.AnimationMixer(scene)
-        console.log('✅ Animation mixer created')
 
-        // Play default animation from GLB file if available
         if (animations && animations.length > 0) {
-            console.log(`✅ Found ${animations.length} animation(s) in GLB file:`, animations.map(a => a.name))
-            // Use the first animation as default (this prevents T-pose)
             let defaultClip = animations[0]
-            
-            // Log all tracks to see what we're dealing with
-            console.log(`🔍 Animation tracks (${defaultClip.tracks.length} total):`, 
-                defaultClip.tracks.slice(0, 5).map(t => t.name))
-            
-            // CRITICAL: Remove morph target tracks from default animation to allow lip sync
-            // Filter out any tracks that control morph target influences (mouth shapes)
+
+            // Remove morph target tracks to allow lip sync control
             const filteredTracks = defaultClip.tracks.filter(track => {
-                // Keep all tracks except morph target tracks for mouth/viseme shapes
-                const isMorphTrack = track.name && (
+                return !(track.name && (
                     track.name.includes('.morphTargetInfluences') ||
                     track.name.toLowerCase().includes('viseme') ||
                     track.name.toLowerCase().includes('mouth') ||
                     track.name.toLowerCase().includes('jaw')
-                )
-                if (isMorphTrack) {
-                    console.log('🔇 Removing morph track from animation:', track.name)
-                }
-                return !isMorphTrack
+                ))
             })
-            
-            // Create new clip without morph tracks if any were removed
+
             if (filteredTracks.length < defaultClip.tracks.length) {
                 defaultClip = new THREE.AnimationClip(defaultClip.name, defaultClip.duration, filteredTracks)
-                console.log(`✅ Filtered animation: removed ${animations[0].tracks.length - filteredTracks.length} morph tracks`)
-            } else {
-                console.log('ℹ️ No morph tracks found in animation to filter')
             }
-            
+
             const defaultAction = mixerRef.current.clipAction(defaultClip)
             defaultAction.setLoop(THREE.LoopRepeat, Infinity)
             defaultAction.setEffectiveWeight(1.0)
-            
-            // CRITICAL: Disable morph target property mixers to prevent animation from overriding lip sync
-            // This ensures animations only affect bones, not morph targets
-            const propertyMixers = defaultAction._propertyBindings || []
-            propertyMixers.forEach((binding, index) => {
-                if (binding && binding.binding && binding.binding.path) {
-                    const path = binding.binding.path
-                    if (path.includes('morphTargetInfluences')) {
-                        binding.binding.setValue = () => {} // Disable this binding
-                        console.log(`🔇 Disabled morph target binding in animation: ${path}`)
-                    }
-                }
-            })
-            
             defaultAction.play()
-            defaultActionRef.current = defaultAction
-            console.log(`🎬 Playing default animation continuously: ${defaultClip.name}`)
-        } else {
-            console.log('ℹ️ No animations found in GLB file - avatar may show T-pose')
         }
-
-        // Helper function to filter out morph target tracks from animations
-        const filterMorphTracks = (clip) => {
-            const filteredTracks = clip.tracks.filter(track => {
-                const isMorphTrack = track.name && (
-                    track.name.includes('.morphTargetInfluences') ||
-                    track.name.toLowerCase().includes('viseme') ||
-                    track.name.toLowerCase().includes('mouth') ||
-                    track.name.toLowerCase().includes('jaw')
-                )
-                return !isMorphTrack
-            })
-            
-            if (filteredTracks.length < clip.tracks.length) {
-                console.log(`🔇 Filtered ${clip.tracks.length - filteredTracks.length} morph tracks from ${clip.name}`)
-                return new THREE.AnimationClip(clip.name, clip.duration, filteredTracks)
-            }
-            return clip
-        }
-        
-        // Improved retargeting function with better bone matching
-        const retargetAnimation = (fbxClip, fbxScene, targetSkeleton) => {
-            if (!fbxClip || !targetSkeleton) return null
-            
-            try {
-                // Get bone names from both skeletons
-                const targetBones = {}
-                targetSkeleton.bones.forEach((bone) => {
-                    targetBones[bone.name.toLowerCase()] = bone.name
-                })
-                
-                // Get FBX bone names
-                const fbxBones = {}
-                if (fbxScene) {
-                    fbxScene.traverse((obj) => {
-                        if (obj.isBone || obj.type === 'Bone') {
-                            fbxBones[obj.name.toLowerCase()] = obj.name
-                        }
-                    })
-                }
-                
-                const tracks = []
-                const boneMap = new Map()
-                
-                // Process each track in the FBX clip
-                fbxClip.tracks.forEach((track) => {
-                    // Extract bone name from track name
-                    const trackNameParts = track.name.split('.')
-                    let fbxBoneName = trackNameParts[0]
-                    
-                    // Handle FBX naming (remove "Scene/" prefix if present)
-                    if (fbxBoneName.includes('/')) {
-                        fbxBoneName = fbxBoneName.split('/').pop()
-                    }
-                    
-                    const property = trackNameParts[1]
-                    if (!property) return
-                    
-                    // Find matching bone in target skeleton
-                    let targetBoneName = null
-                    const lowerFbxName = fbxBoneName.toLowerCase()
-                    
-                    // Strategy 1: Exact match (case-insensitive)
-                    if (targetBones[lowerFbxName]) {
-                        targetBoneName = targetBones[lowerFbxName]
-                    } else {
-                        // Strategy 2: Partial match - check if target bone name contains FBX bone name or vice versa
-                        // Use a scoring system to find the best match
-                        let bestMatch = null
-                        let bestScore = 0
-                        
-                        for (const [lowerTargetName, targetName] of Object.entries(targetBones)) {
-                            let score = 0
-                            
-                            // Exact substring match gets highest score
-                            if (lowerTargetName === lowerFbxName) {
-                                score = 100
-                            } else if (lowerTargetName.includes(lowerFbxName) || lowerFbxName.includes(lowerTargetName)) {
-                                // Calculate similarity score based on common characters
-                                const commonChars = [...lowerFbxName].filter(char => lowerTargetName.includes(char)).length
-                                score = (commonChars / Math.max(lowerFbxName.length, lowerTargetName.length)) * 50
-                                
-                                // Bonus for similar length
-                                const lengthDiff = Math.abs(lowerTargetName.length - lowerFbxName.length)
-                                score += Math.max(0, 20 - lengthDiff)
-                            }
-                            
-                            if (score > bestScore && score > 30) { // Minimum threshold
-                                bestScore = score
-                                bestMatch = targetName
-                            }
-                        }
-                        
-                        if (bestMatch) {
-                            targetBoneName = bestMatch
-                        }
-                        
-                        // Strategy 3: Common bone name mappings
-                        if (!targetBoneName) {
-                            const boneMappings = {
-                                'mixamorig:hips': ['hip', 'pelvis', 'root', 'hips'],
-                                'mixamorig:spine': ['spine', 'spine1', 'spine2'],
-                                'mixamorig:spine1': ['spine1', 'spine'],
-                                'mixamorig:spine2': ['spine2', 'spine'],
-                                'mixamorig:neck': ['neck', 'neck1'],
-                                'mixamorig:head': ['head'],
-                                'mixamorig:leftshoulder': ['leftshoulder', 'lshoulder', 'shoulder_l'],
-                                'mixamorig:rightshoulder': ['rightshoulder', 'rshoulder', 'shoulder_r'],
-                                'mixamorig:leftarm': ['leftarm', 'larm', 'arm_l', 'upperarm_l'],
-                                'mixamorig:rightarm': ['rightarm', 'rarm', 'arm_r', 'upperarm_r'],
-                                'mixamorig:leftforearm': ['leftforearm', 'lforearm', 'forearm_l', 'lowerarm_l'],
-                                'mixamorig:rightforearm': ['rightforearm', 'rforearm', 'forearm_r', 'lowerarm_r'],
-                                'mixamorig:lefthand': ['lefthand', 'lhand', 'hand_l'],
-                                'mixamorig:righthand': ['righthand', 'rhand', 'hand_r'],
-                                'mixamorig:leftupleg': ['leftupleg', 'lthigh', 'thigh_l', 'upperleg_l'],
-                                'mixamorig:rightupleg': ['rightupleg', 'rthigh', 'thigh_r', 'upperleg_r'],
-                                'mixamorig:leftleg': ['leftleg', 'lcalf', 'calf_l', 'lowerleg_l'],
-                                'mixamorig:rightleg': ['rightleg', 'rcalf', 'calf_r', 'lowerleg_r'],
-                                'mixamorig:leftfoot': ['leftfoot', 'lfoot', 'foot_l'],
-                                'mixamorig:rightfoot': ['rightfoot', 'rfoot', 'foot_r']
-                            }
-                            
-                            // Check if FBX bone matches any mapping
-                            for (const [targetKey, variations] of Object.entries(boneMappings)) {
-                                if (variations.some(v => lowerFbxName.includes(v) || v.includes(lowerFbxName))) {
-                                    // Find target bone that matches the key
-                                    for (const [lowerTargetName, targetName] of Object.entries(targetBones)) {
-                                        if (lowerTargetName.includes(targetKey.split(':')[1]) || 
-                                            targetKey.split(':')[1].includes(lowerTargetName.replace('mixamorig:', ''))) {
-                                            targetBoneName = targetName
-                                            break
-                                        }
-                                    }
-                                    if (targetBoneName) break
-                                }
-                            }
-                        }
-                    }
-                    
-                    if (targetBoneName && property) {
-                        // Create new track for target skeleton
-                        const newTrackName = `${targetBoneName}.${property}`
-                        const newTrack = track.clone()
-                        newTrack.name = newTrackName
-                        tracks.push(newTrack)
-                        
-                        if (!boneMap.has(fbxBoneName)) {
-                            boneMap.set(fbxBoneName, targetBoneName)
-                        }
-                    }
-                })
-                
-                if (tracks.length > 0) {
-                    console.log(`✅ Retargeted ${tracks.length}/${fbxClip.tracks.length} tracks from ${fbxClip.name}`)
-                    if (boneMap.size > 0) {
-                        console.log('📋 Sample bone mappings:', Array.from(boneMap.entries()).slice(0, 8))
-                    }
-                    return new THREE.AnimationClip(fbxClip.name, fbxClip.duration, tracks)
-                } else {
-                    console.warn(`⚠️ No tracks retargeted for ${fbxClip.name}, trying original`)
-                }
-            } catch (error) {
-                console.error('❌ Error retargeting animation:', error)
-            }
-            
-            // Fallback: try original clip
-            return fbxClip
-        }
-
-        // Load FBX animations
-        const loader = new FBXLoader()
-        
-        // Load Salute animation
-        loader.load('/models/Salute.fbx', (fbx) => {
-            let clip = fbx.animations[0]
-            if (clip) {
-                // Filter morph tracks first
-                clip = filterMorphTracks(clip)
-                
-                if (avatarSkeletonRef.current) {
-                    const retargetedClip = retargetAnimation(clip, fbx, avatarSkeletonRef.current)
-                    animationsRef.current.salute = filterMorphTracks(retargetedClip || clip)
-                    console.log('✅ Salute animation ready:', animationsRef.current.salute.name, animationsRef.current.salute.duration, 'seconds')
-                } else {
-                    animationsRef.current.salute = clip
-                    console.log('✅ Salute animation loaded (no skeleton for retargeting):', clip.name, clip.duration, 'seconds')
-                }
-            }
-        }, undefined, (error) => {
-            console.error('❌ Error loading Salute.fbx:', error)
-        })
-
-        // Load Offensive Idle animation
-        loader.load('/models/Offensive Idle.fbx', (fbx) => {
-            let clip = fbx.animations[0]
-            if (clip) {
-                // Filter morph tracks first
-                clip = filterMorphTracks(clip)
-                
-                if (avatarSkeletonRef.current) {
-                    const retargetedClip = retargetAnimation(clip, fbx, avatarSkeletonRef.current)
-                    animationsRef.current.offensiveIdle = filterMorphTracks(retargetedClip || clip)
-                    console.log('✅ Offensive Idle animation ready:', animationsRef.current.offensiveIdle.name, animationsRef.current.offensiveIdle.duration, 'seconds')
-                } else {
-                    animationsRef.current.offensiveIdle = clip
-                    console.log('✅ Offensive Idle animation loaded (no skeleton for retargeting):', clip.name, clip.duration, 'seconds')
-                }
-            }
-        }, undefined, (error) => {
-            console.error('❌ Error loading Offensive Idle.fbx:', error)
-        })
-
-        // Load Yelling While Standing animation
-        loader.load('/models/Yelling While Standing.fbx', (fbx) => {
-            let clip = fbx.animations[0]
-            if (clip) {
-                // Filter morph tracks first
-                clip = filterMorphTracks(clip)
-                
-                if (avatarSkeletonRef.current) {
-                    const retargetedClip = retargetAnimation(clip, fbx, avatarSkeletonRef.current)
-                    animationsRef.current.yelling = filterMorphTracks(retargetedClip || clip)
-                    console.log('✅ Yelling While Standing animation ready:', animationsRef.current.yelling.name, animationsRef.current.yelling.duration, 'seconds')
-                } else {
-                    animationsRef.current.yelling = clip
-                    console.log('✅ Yelling While Standing animation loaded (no skeleton for retargeting):', clip.name, clip.duration, 'seconds')
-                }
-            }
-        }, undefined, (error) => {
-            console.error('❌ Error loading Yelling While Standing.fbx:', error)
-        })
-
     }, [scene])
 
-    // Find bones for micro-motion after skeleton is ready
+    // Find bones for micro-motion
     useEffect(() => {
         if (!avatarSkeletonRef.current) return
         const bones = avatarSkeletonRef.current.bones
@@ -566,52 +141,33 @@ export default function Avatar() {
             if (name.includes('head') && !name.includes('end')) headBoneRef.current = bone
             if ((name.includes('spine1') || name.includes('spine2')) && !spineBoneRef.current) spineBoneRef.current = bone
             if (name.includes('neck') && !name.includes('end')) neckBoneRef.current = bone
-            if (name.includes('rightarm') && !name.includes('end')) rightArmBoneRef.current = bone
-            if (name.includes('rightforearm') && !name.includes('end')) rightForearmBoneRef.current = bone
-            if (name.includes('righthand') && !name.includes('end')) rightHandBoneRef.current = bone
-            if (name.includes('rightshoulder') && !name.includes('end')) rightShoulderBoneRef.current = bone
         }
-        // Save initial bone rotations/positions to prevent accumulation
         if (headBoneRef.current) {
             initialBoneRotations.current.head = {
                 x: headBoneRef.current.rotation.x,
                 y: headBoneRef.current.rotation.y,
                 z: headBoneRef.current.rotation.z
             }
-            console.log('✅ Head bone for micro-motion:', headBoneRef.current.name)
         }
         if (spineBoneRef.current) {
             initialBoneRotations.current.spineY = spineBoneRef.current.position.y
-            console.log('✅ Spine bone for breathing:', spineBoneRef.current.name)
         }
         if (neckBoneRef.current) {
-            initialBoneRotations.current.neck = {
-                z: neckBoneRef.current.rotation.z
-            }
+            initialBoneRotations.current.neck = { z: neckBoneRef.current.rotation.z }
         }
-        if (rightHandBoneRef.current) console.log('✅ Right hand bone:', rightHandBoneRef.current.name)
     }, [scene])
 
-    // Default GLB animation runs continuously — no separate talking animation needed
-
-    // Update animation mixer every frame AND apply lip sync + facial expressions AFTER mixer
-    // This is CRITICAL - lip sync MUST run after mixer.update() or mixer will overwrite our values!
     useFrame((state, delta) => {
         if (mixerRef.current) {
-            const clampedDelta = Math.min(delta, 0.1)
-            mixerRef.current.update(clampedDelta)
+            mixerRef.current.update(Math.min(delta, 0.1))
         }
 
         const elapsedTime = state.clock.elapsedTime
         const isAudioPlaying = audioElement && !audioElement.paused && !audioElement.ended
         const hasLipSyncData = lipSyncData && lipSyncData.mouthCues && lipSyncData.mouthCues.length > 0
-
-        // Get real-time audio amplitude for lip sync modulation
         const amplitude = isAudioPlaying ? getAmplitude() : 0
 
-        // Default animation keeps running — lip sync + micro-motions handle speaking naturally
-
-        // ===== HELPER: apply morph target by name across all face meshes =====
+        // ===== HELPER: apply morph target across all face meshes =====
         const applyMorph = (morphName, targetValue, speed) => {
             scene.traverse((obj) => {
                 const meshName = (obj.name || '').toLowerCase()
@@ -629,38 +185,33 @@ export default function Avatar() {
             })
         }
 
-        // ===== BONE-BASED MICRO-MOTIONS (using absolute offsets, not accumulating +=) =====
+        // ===== BONE-BASED MICRO-MOTIONS =====
 
-        // --- Breathing: very subtle sine on spine bone Y ---
+        // Breathing
         if (spineBoneRef.current && initialBoneRotations.current.spineY !== undefined) {
             const breathCycle = Math.sin(elapsedTime * 0.4 * Math.PI * 2)
             spineBoneRef.current.position.y = initialBoneRotations.current.spineY + breathCycle * 0.0006
         }
 
-        // --- Head sway: layered sine on head bone rotation ---
+        // Head sway — reduced amplitude for more steady eye contact
         if (headBoneRef.current && initialBoneRotations.current.head) {
             const base = initialBoneRotations.current.head
-            const headSwayX = Math.sin(elapsedTime * 0.3) * 0.015 + Math.sin(elapsedTime * 0.7) * 0.008
-            const headSwayY = Math.sin(elapsedTime * 0.25 + 1.0) * 0.012 + Math.sin(elapsedTime * 0.6 + 0.5) * 0.006
-            const headSwayZ = Math.sin(elapsedTime * 0.2 + 2.0) * 0.005
+            const headSwayX = Math.sin(elapsedTime * 0.25) * 0.006 + Math.sin(elapsedTime * 0.6) * 0.003
+            const headSwayY = Math.sin(elapsedTime * 0.2 + 1.0) * 0.005 + Math.sin(elapsedTime * 0.5 + 0.5) * 0.002
+            const headSwayZ = Math.sin(elapsedTime * 0.15 + 2.0) * 0.002
 
-            // Speaking head nod
-            headNodRef.current += headNodVelocityRef.current * delta
-            headNodVelocityRef.current *= 0.92
-            if (Math.abs(headNodRef.current) < 0.001) headNodRef.current = 0
-
-            headBoneRef.current.rotation.x = base.x + headSwayX + headNodRef.current
+            headBoneRef.current.rotation.x = base.x + headSwayX
             headBoneRef.current.rotation.y = base.y + headSwayY
             headBoneRef.current.rotation.z = base.z + headSwayZ
         }
 
-        // --- Shoulder micro-shift ---
+        // Shoulder micro-shift
         if (neckBoneRef.current && initialBoneRotations.current.neck) {
-            const shoulderShift = Math.sin(elapsedTime * 0.35 + 1.5) * 0.004
+            const shoulderShift = Math.sin(elapsedTime * 0.35 + 1.5) * 0.002
             neckBoneRef.current.rotation.z = initialBoneRotations.current.neck.z + shoulderShift
         }
 
-        // ===== 1. EYE BLINKING SYSTEM (always active) =====
+        // ===== BLINKING (always active) =====
         if (elapsedTime >= nextBlinkTimeRef.current) {
             if (!isBlinkingRef.current) {
                 isBlinkingRef.current = true
@@ -688,60 +239,28 @@ export default function Avatar() {
                 isBlinkingRef.current = false
                 blinkProgressRef.current = 0
                 const isDoubleBlink = Math.random() < 0.2
-                const nextInterval = isDoubleBlink ? 0.25 : (2 + Math.random() * 4)
-                nextBlinkTimeRef.current = elapsedTime + nextInterval
+                nextBlinkTimeRef.current = elapsedTime + (isDoubleBlink ? 0.25 : (2 + Math.random() * 4))
             }
         } else {
             applyMorph('eyeBlinkLeft', 0, 0.3)
             applyMorph('eyeBlinkRight', 0, 0.3)
         }
 
-        // ===== EYE SACCADES + LOOK-AT =====
-        if (elapsedTime >= nextSaccadeTimeRef.current) {
-            // New random eye target
-            saccadeTargetRef.current = {
-                x: (Math.random() - 0.5) * 0.15, // small horizontal range
-                y: (Math.random() - 0.5) * 0.08  // smaller vertical range
-            }
-            nextSaccadeTimeRef.current = elapsedTime + 0.5 + Math.random() * 2.0
-        }
+        // ===== EYES LOOK FORWARD (camera) — no saccades =====
+        const eyeSpeed = 0.15
+        applyMorph('eyeLookOutLeft', 0, eyeSpeed)
+        applyMorph('eyeLookInRight', 0, eyeSpeed)
+        applyMorph('eyeLookInLeft', 0, eyeSpeed)
+        applyMorph('eyeLookOutRight', 0, eyeSpeed)
+        applyMorph('eyeLookUpLeft', 0, eyeSpeed)
+        applyMorph('eyeLookUpRight', 0, eyeSpeed)
+        applyMorph('eyeLookDownLeft', 0, eyeSpeed)
+        applyMorph('eyeLookDownRight', 0, eyeSpeed)
 
-        // Apply eye look direction via morph targets
-        const eyeX = saccadeTargetRef.current.x
-        const eyeY = saccadeTargetRef.current.y
-        const eyeSpeed = 0.12 // smooth tracking
-
-        // Horizontal look
-        if (eyeX > 0) {
-            applyMorph('eyeLookOutLeft', eyeX, eyeSpeed)
-            applyMorph('eyeLookInRight', eyeX, eyeSpeed)
-            applyMorph('eyeLookInLeft', 0, eyeSpeed)
-            applyMorph('eyeLookOutRight', 0, eyeSpeed)
-        } else {
-            applyMorph('eyeLookInLeft', -eyeX, eyeSpeed)
-            applyMorph('eyeLookOutRight', -eyeX, eyeSpeed)
-            applyMorph('eyeLookOutLeft', 0, eyeSpeed)
-            applyMorph('eyeLookInRight', 0, eyeSpeed)
-        }
-
-        // Vertical look
-        if (eyeY > 0) {
-            applyMorph('eyeLookUpLeft', eyeY, eyeSpeed)
-            applyMorph('eyeLookUpRight', eyeY, eyeSpeed)
-            applyMorph('eyeLookDownLeft', 0, eyeSpeed)
-            applyMorph('eyeLookDownRight', 0, eyeSpeed)
-        } else {
-            applyMorph('eyeLookDownLeft', -eyeY, eyeSpeed)
-            applyMorph('eyeLookDownRight', -eyeY, eyeSpeed)
-            applyMorph('eyeLookUpLeft', 0, eyeSpeed)
-            applyMorph('eyeLookUpRight', 0, eyeSpeed)
-        }
-
-        // ===== 2. LIP SYNC + EXPRESSIONS WHILE SPEAKING =====
+        // ===== LIP SYNC WHILE SPEAKING =====
         if (isAudioPlaying) {
             const currentTime = audioElement.currentTime || 0
 
-            // Find current phoneme
             let currentCue = null
             if (hasLipSyncData) {
                 const mouthCues = lipSyncData.mouthCues
@@ -753,8 +272,7 @@ export default function Avatar() {
                 }
             }
 
-            // Amplitude modulation factor (makes lip sync responsive to volume)
-            const ampMod = 0.6 + amplitude * 0.5 // range: 0.6 (quiet) to 1.1 (loud)
+            const ampMod = 0.6 + amplitude * 0.5
 
             scene.traverse((obj) => {
                 const meshName = (obj.name || '').toLowerCase()
@@ -773,7 +291,6 @@ export default function Avatar() {
                         return fallback < infl.length ? fallback : undefined
                     }
 
-                    // Mouth shape indices
                     const mouthOpenIdx = getIdx('mouthOpen', 0)
                     const jawOpenIdx = getIdx('jawOpen', 49)
                     const visemePPIdx = getIdx('viseme_PP', 2)
@@ -791,39 +308,36 @@ export default function Avatar() {
                     const visemeRRIdx = getIdx('viseme_RR', 61)
                     const visemeDDIdx = getIdx('viseme_DD', 56)
 
-                    // Mouth targets
                     let targets = {
                         mouthOpen: 0, jaw: 0, PP: 0, FF: 0, TH: 0, O: 0, E: 0,
                         AA: 0, I: 0, U: 0, KK: 0, CH: 0, SS: 0, NN: 0, RR: 0, DD: 0
                     }
 
                     if (currentCue) {
-                        const phoneme = currentCue.value
-
-                        switch (phoneme) {
+                        switch (currentCue.value) {
                             case 'A':
-                                targets.mouthOpen = 0.4; targets.jaw = 0.35; targets.AA = 0.5
+                                targets.mouthOpen = 0.45; targets.jaw = 0.4; targets.AA = 0.55
                                 break
                             case 'B':
-                                targets.mouthOpen = 0.05; targets.jaw = 0.05; targets.PP = 0.6
+                                targets.mouthOpen = 0.05; targets.jaw = 0.05; targets.PP = 0.65
                                 break
                             case 'C':
-                                targets.mouthOpen = 0.25; targets.jaw = 0.15; targets.E = 0.4
+                                targets.mouthOpen = 0.3; targets.jaw = 0.18; targets.E = 0.45
                                 break
                             case 'D':
-                                targets.mouthOpen = 0.35; targets.jaw = 0.3; targets.AA = 0.45; targets.DD = 0.3
+                                targets.mouthOpen = 0.4; targets.jaw = 0.35; targets.AA = 0.5; targets.DD = 0.35
                                 break
                             case 'E':
-                                targets.mouthOpen = 0.15; targets.jaw = 0.1; targets.E = 0.5; targets.I = 0.3
+                                targets.mouthOpen = 0.18; targets.jaw = 0.12; targets.E = 0.55; targets.I = 0.35
                                 break
                             case 'F':
-                                targets.mouthOpen = 0.1; targets.jaw = 0.08; targets.FF = 0.6
+                                targets.mouthOpen = 0.12; targets.jaw = 0.1; targets.FF = 0.65
                                 break
                             case 'G':
-                                targets.mouthOpen = 0.3; targets.jaw = 0.25; targets.O = 0.5; targets.U = 0.2
+                                targets.mouthOpen = 0.35; targets.jaw = 0.3; targets.O = 0.55; targets.U = 0.25
                                 break
                             case 'H':
-                                targets.mouthOpen = 0.2; targets.jaw = 0.15; targets.TH = 0.3; targets.NN = 0.2
+                                targets.mouthOpen = 0.22; targets.jaw = 0.18; targets.TH = 0.35; targets.NN = 0.25
                                 break
                             case 'X':
                             default:
@@ -831,24 +345,13 @@ export default function Avatar() {
                                 break
                         }
 
-                        // Apply amplitude modulation — louder = wider mouth
                         targets.mouthOpen *= ampMod
                         targets.jaw *= ampMod
-
-                        // === COARTICULATION: blend with previous 2 phonemes ===
-                        if (prevCueRef.current && prevCueRef.current !== phoneme) {
-                            // Trigger head nod on emphasized vowels
-                            if (['A', 'D', 'G'].includes(phoneme) && !['A', 'D', 'G'].includes(prevCueRef.current)) {
-                                headNodVelocityRef.current = -0.08 // downward dip
-                            }
-                        }
-                        prevCue2Ref.current = prevCueRef.current
-                        prevCueRef.current = phoneme
+                        prevCueRef.current = currentCue.value
                     } else {
-                        // FALLBACK: No lip sync data - use natural talking animation
+                        // Fallback: amplitude-based mouth movement
                         const wave1 = Math.sin(currentTime * 10) * 0.5 + 0.5
                         const wave2 = Math.sin(currentTime * 15) * 0.5 + 0.5
-                        const wave3 = Math.sin(currentTime * 7) * 0.5 + 0.5
                         const phase = (currentTime * 3) % 4
 
                         if (phase < 1) {
@@ -862,37 +365,18 @@ export default function Avatar() {
                             targets.mouthOpen = (0.2 + wave1 * 0.1) * ampMod
                             targets.O = 0.3 * wave1
                         } else {
-                            targets.mouthOpen = (0.1 + wave3 * 0.15) * ampMod
-                            targets.jaw = 0.1 * wave3
+                            targets.mouthOpen = (0.1 + wave1 * 0.15) * ampMod
+                            targets.jaw = 0.1 * wave1
                         }
                     }
 
-                    // === JAW BOUNCE PHYSICS ===
-                    const currentJawTarget = targets.jaw
-                    const jawDelta = currentJawTarget - prevJawOpenRef.current
-                    if (Math.abs(jawDelta) > 0.15) {
-                        // Large jaw change — add elastic bounce
-                        jawVelocityRef.current += jawDelta * 0.3
-                    }
-                    jawBounceRef.current += jawVelocityRef.current * delta * 10
-                    jawVelocityRef.current *= 0.85 // damping
-                    jawBounceRef.current *= 0.9 // decay
-                    targets.jaw += jawBounceRef.current * 0.05
-                    prevJawOpenRef.current = currentJawTarget
-
-                    // === DIRECTIONAL INTERPOLATION WITH OVERSHOOT ===
+                    // Smoother interpolation — faster open, gradual close, no overshoot
                     const applySmooth = (idx, target) => {
                         if (idx !== undefined && idx < infl.length) {
                             const current = infl[idx] || 0
                             const diff = target - current
-                            // Faster opening (0.45), slower closing (0.15) for natural speech
-                            const speed = diff > 0 ? 0.45 : 0.15
-                            let newValue = current + diff * speed
-                            // Slight overshoot on large upward movements
-                            if (diff > 0.1) {
-                                newValue += diff * 0.05 * Math.sin(elapsedTime * 20) // subtle elastic
-                            }
-                            infl[idx] = Math.max(0, Math.min(1, newValue))
+                            const speed = diff > 0 ? 0.35 : 0.18
+                            infl[idx] = Math.max(0, Math.min(1, current + diff * speed))
                         }
                     }
 
@@ -912,16 +396,10 @@ export default function Avatar() {
                     applySmooth(visemeNNIdx, targets.NN)
                     applySmooth(visemeRRIdx, targets.RR)
                     applySmooth(visemeDDIdx, targets.DD)
-
-                    if (infl.length > 0) {
-                        const current = infl[0] || 0
-                        const speed = targets.mouthOpen > current ? 0.45 : 0.15
-                        infl[0] = current + (targets.mouthOpen - current) * speed
-                    }
                 }
             })
 
-            // === EYEBROW MICRO-MOVEMENTS during speech ===
+            // Eyebrow movements during speech
             if (currentCue) {
                 const phoneme = currentCue.value
                 if (['A', 'D', 'G'].includes(phoneme)) {
@@ -934,27 +412,22 @@ export default function Avatar() {
                     applyMorph('browDownLeft', 0.12, 0.08)
                     applyMorph('browDownRight', 0.12, 0.08)
                     applyMorph('browInnerUp', 0, 0.08)
-                    applyMorph('browOuterUpLeft', 0, 0.08)
-                    applyMorph('browOuterUpRight', 0, 0.08)
                 } else {
                     applyMorph('browInnerUp', 0.03, 0.06)
-                    applyMorph('browOuterUpLeft', 0.02, 0.06)
-                    applyMorph('browOuterUpRight', 0.02, 0.06)
                     applyMorph('browDownLeft', 0, 0.06)
                     applyMorph('browDownRight', 0, 0.06)
                 }
             }
 
-            // === SUBTLE SMILE + CHEEK SQUINT while speaking ===
+            // Subtle smile while speaking
             applyMorph('mouthSmileLeft', 0.1 + amplitude * 0.06, 0.06)
             applyMorph('mouthSmileRight', 0.1 + amplitude * 0.06, 0.06)
             applyMorph('cheekSquintLeft', 0.05 + amplitude * 0.03, 0.06)
             applyMorph('cheekSquintRight', 0.05 + amplitude * 0.03, 0.06)
 
-        } else if (!audioElement || audioElement.paused || audioElement.ended) {
-            // ===== 3. IDLE STATE: smooth mouth close + micro-movements =====
+        } else {
+            // ===== IDLE STATE =====
             prevCueRef.current = null
-            prevCue2Ref.current = null
 
             scene.traverse((obj) => {
                 const meshName = (obj.name || '').toLowerCase()
@@ -992,54 +465,16 @@ export default function Avatar() {
                 }
             })
 
-            // === IDLE MICRO-MOVEMENTS ===
-            // Subtle breathing: very slow sine wave on jawOpen
+            // Subtle breathing jaw
             const breathValue = (Math.sin(elapsedTime * 1.5) * 0.5 + 0.5) * 0.015
             applyMorph('jawOpen', breathValue, 0.1)
 
-            // Occasional micro eye-squint
+            // Slight idle squint
             const squintWave = (Math.sin(elapsedTime * 0.7) * 0.5 + 0.5) * 0.03
             applyMorph('eyeSquintLeft', squintWave, 0.05)
             applyMorph('eyeSquintRight', squintWave, 0.05)
 
-            // === IDLE MICRO-EXPRESSIONS ===
-            if (elapsedTime >= nextMicroExpressionRef.current) {
-                // Pick a random micro-expression
-                const types = ['smile', 'browRaise', 'squint', null, null] // null = no expression
-                microExpressionTypeRef.current = types[Math.floor(Math.random() * types.length)]
-                microExpressionProgressRef.current = 0
-                nextMicroExpressionRef.current = elapsedTime + 4 + Math.random() * 6
-            }
-
-            if (microExpressionTypeRef.current) {
-                microExpressionProgressRef.current += delta
-                const dur = 2.5 // expression duration
-                const p = microExpressionProgressRef.current / dur
-                // Bell curve: peaks at 0.5, fades to 0 at 0 and 1
-                const intensity = Math.sin(Math.min(p, 1) * Math.PI) * 0.15
-
-                switch (microExpressionTypeRef.current) {
-                    case 'smile':
-                        applyMorph('mouthSmileLeft', intensity, 0.08)
-                        applyMorph('mouthSmileRight', intensity, 0.08)
-                        applyMorph('cheekSquintLeft', intensity * 0.4, 0.08)
-                        applyMorph('cheekSquintRight', intensity * 0.4, 0.08)
-                        break
-                    case 'browRaise':
-                        applyMorph('browInnerUp', intensity, 0.06)
-                        applyMorph('browOuterUpLeft', intensity * 0.7, 0.06)
-                        applyMorph('browOuterUpRight', intensity * 0.7, 0.06)
-                        break
-                    case 'squint':
-                        applyMorph('eyeSquintLeft', intensity, 0.06)
-                        applyMorph('eyeSquintRight', intensity, 0.06)
-                        break
-                }
-
-                if (p >= 1) microExpressionTypeRef.current = null
-            }
-
-            // Slowly reset expression morphs
+            // Reset expression morphs
             applyMorph('browInnerUp', 0, 0.04)
             applyMorph('browOuterUpLeft', 0, 0.04)
             applyMorph('browOuterUpRight', 0, 0.04)
@@ -1051,9 +486,6 @@ export default function Avatar() {
             applyMorph('cheekSquintRight', 0, 0.04)
         }
     })
-
-    // Re-enable useLipSync hook for phoneme-based lip sync
-    useLipSync(headRef)
 
     return (
         <group ref={groupRef} position={[-0.5, -0.5, -2]}>

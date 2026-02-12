@@ -1,542 +1,178 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { OrbitControls, Environment } from '@react-three/drei'
+import { OrbitControls } from '@react-three/drei'
 import Avatar from './components/Avatar'
 import VictorianEnvironment from './components/VictorianEnvironment'
 import { getInteractiveResponse, getPredefinedResponse } from './utils/interactive'
 import { LipSyncProvider, useLipSyncContext } from './contexts/LipSyncContext'
-import { processLipSync } from './utils/lipSync'
 import { generateSpeechWithElevenLabs, speechToTextWithElevenLabs } from './utils/elevenlabs'
 import { saveAudioFile, sanitizeFilename } from './utils/audioSaver'
 import { createAudioAnalyser } from './utils/audioAnalyser'
 import './App.css'
 
+// Conversation states
+const STATE = {
+  IDLE: 'idle',
+  LISTENING: 'listening',
+  THINKING: 'thinking',
+  SPEAKING: 'speaking',
+}
+
 function AppContent() {
-  const [text, setText] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [convState, setConvState] = useState(STATE.IDLE)
   const [error, setError] = useState(null)
   const [answerText, setAnswerText] = useState(null)
-  const [isTestingLipSync, setIsTestingLipSync] = useState(false)
-  const [isTestingThanks, setIsTestingThanks] = useState(false)
-  const [isTestingThanks1, setIsTestingThanks1] = useState(false)
-  const [isRecording, setIsRecording] = useState(false)
-  const [isTranscribing, setIsTranscribing] = useState(false)
-  const [conversationHistory, setConversationHistory] = useState([]) // Store conversation history
-  const testAudioContainerRef = useRef(null)
-  const thanksAudioContainerRef = useRef(null)
-  const thanks1AudioContainerRef = useRef(null)
-  const mediaRecorderRef = useRef(null)
-  const audioChunksRef = useRef([])
-  const streamRef = useRef(null)
+  const [conversationHistory, setConversationHistory] = useState([])
+  const [sceneReady, setSceneReady] = useState(false)
+  const [textInput, setTextInput] = useState('')
+
   const { setAudioElement, setLipSyncData, setIsProcessing, setAnimationType, setGetAmplitude } = useLipSyncContext()
   const analyserRef = useRef(null)
-  const ambientAudioRef = useRef(null)
 
-  // Check if file server is running on mount
+  // VAD refs
+  const streamRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
+  const vadAnalyserRef = useRef(null)
+  const vadContextRef = useRef(null)
+  const vadIntervalRef = useRef(null)
+  const silenceStartRef = useRef(null)
+  const isSpeakingRef = useRef(false)
+  const convStateRef = useRef(STATE.IDLE)
+  const audioElementRef = useRef(null)
+
+  // Keep ref in sync with state
   useEffect(() => {
-    fetch('http://localhost:3001/api/health')
-      .then(() => {
-        console.log('✅ File server is running - files will save to public/ automatically')
-      })
-      .catch(() => {
-        console.warn('⚠️ File server not running. Start it with: npm run server')
-        console.warn('   Or run both together with: npm run dev:full')
-      })
+    convStateRef.current = convState
+  }, [convState])
+
+  // Mark scene as ready after a brief delay for GLB loading
+  useEffect(() => {
+    const timer = setTimeout(() => setSceneReady(true), 1500)
+    return () => clearTimeout(timer)
   }, [])
 
-  // Start ambient Victorian room sounds (Silence)
+  // Check file server
   useEffect(() => {
-    // Clock sound removed as requested. 
-    // We could add low-level library ambiance (page turns, distant muffled sounds) here later if desired.
+    fetch('http://localhost:3001/api/health').catch(() => {
+      console.warn('File server not running. Start with: npm run dev:full')
+    })
   }, [])
 
-  // Cleanup recording stream on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop())
-        streamRef.current = null
-      }
+      stopVAD()
     }
   }, [])
 
-  /**
-   * Check if audio file already exists in public folder
-   */
-  async function checkAudioExists(filename) {
-    try {
-      const wavPath = `/${filename}.wav`
-      const response = await fetch(wavPath, { method: 'HEAD' })
-      return response.ok
-    } catch {
-      return false
-    }
-  }
+  // === VAD: Voice Activity Detection using Web Audio API ===
 
-  /**
-   * Load existing audio file from public folder
-   */
-  async function loadExistingAudio(filename) {
-    try {
-      const wavPath = `/${filename}.wav`
-      const audio = new Audio(wavPath)
-      audio.controls = true
-      audio.style.width = '100%'
-      audio.style.marginTop = '12px'
+  const SILENCE_THRESHOLD = 15 // Volume level (0-255) below which is "silence"
+  const SILENCE_DURATION = 1500 // ms of silence before stopping recording
+  const VAD_CHECK_INTERVAL = 100 // ms between VAD checks
 
-      return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Audio loading timeout'))
-        }, 10000) // 10 second timeout
+  function startVAD(stream) {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)()
+    vadContextRef.current = audioContext
+    const source = audioContext.createMediaStreamSource(stream)
+    const analyser = audioContext.createAnalyser()
+    analyser.fftSize = 512
+    analyser.smoothingTimeConstant = 0.5
+    source.connect(analyser)
+    vadAnalyserRef.current = analyser
 
-        audio.addEventListener('loadeddata', () => {
-          clearTimeout(timeout)
-          resolve(audio)
-        })
+    const dataArray = new Uint8Array(analyser.frequencyBinCount)
+    silenceStartRef.current = null
+    isSpeakingRef.current = false
 
-        audio.addEventListener('error', (event) => {
-          clearTimeout(timeout)
-          const errorMsg = audio.error
-            ? `Audio load error: ${audio.error.code} - ${audio.error.message || 'Unknown error'}`
-            : 'Failed to load audio file'
-          reject(new Error(errorMsg))
-        })
+    vadIntervalRef.current = setInterval(() => {
+      if (convStateRef.current !== STATE.LISTENING) return
 
-        audio.load()
-      })
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to load existing audio: ${errorMsg}`)
-    }
-  }
+      analyser.getByteFrequencyData(dataArray)
+      let sum = 0
+      for (let i = 0; i < dataArray.length; i++) sum += dataArray[i]
+      const avgVolume = sum / dataArray.length
 
-  /**
-   * Generate speech from text using ElevenLabs API only
-   * No browser TTS - uses VITE_ELEVENLABS_API_KEY from .env
-   * Optimized with caching and text length limits to reduce API usage
-   */
-  async function generateSpeechFromText(text) {
-    try {
-      // Limit text length to prevent excessive character usage (max 500 characters)
-      const MAX_TEXT_LENGTH = 500
-      const originalText = text
-      const truncatedText = text.length > MAX_TEXT_LENGTH
-        ? text.substring(0, MAX_TEXT_LENGTH) + '...'
-        : text
-
-      if (text.length > MAX_TEXT_LENGTH) {
-        console.warn(`⚠️ Text truncated from ${text.length} to ${MAX_TEXT_LENGTH} characters to save API credits`)
-      }
-
-      const audioFilename = sanitizeFilename(truncatedText)
-
-      // Check if audio file already exists (caching)
-      console.log('🔍 Checking for existing audio file...')
-      const audioExists = await checkAudioExists(audioFilename)
-
-      let audio
-      let audioBlob = null
-      let useExistingAudio = false
-
-      if (audioExists) {
-        try {
-          console.log('✅ Found existing audio file, reusing it (saving API credits)')
-          audio = await loadExistingAudio(audioFilename)
-          console.log('✅ Successfully loaded existing audio file')
-          useExistingAudio = true
-        } catch (loadError) {
-          console.warn('⚠️ Failed to load existing audio file, generating new one:', loadError.message)
-          // Fallback to generating new audio if loading fails
-          audio = null
-          useExistingAudio = false
+      if (avgVolume > SILENCE_THRESHOLD) {
+        // User is speaking
+        if (!isSpeakingRef.current) {
+          isSpeakingRef.current = true
+          startRecording(stream)
+        }
+        silenceStartRef.current = null
+      } else if (isSpeakingRef.current) {
+        // User was speaking, now silent
+        if (!silenceStartRef.current) {
+          silenceStartRef.current = Date.now()
+        } else if (Date.now() - silenceStartRef.current > SILENCE_DURATION) {
+          // Silence long enough — stop recording
+          isSpeakingRef.current = false
+          silenceStartRef.current = null
+          stopRecording()
         }
       }
+    }, VAD_CHECK_INTERVAL)
+  }
 
-      if (!useExistingAudio) {
-        console.log('🎤 Generating new speech with ElevenLabs API...')
-        console.log(`📝 Text length: ${truncatedText.length} characters`)
-
-        // Generate speech with ElevenLabs
-        audioBlob = await generateSpeechWithElevenLabs(truncatedText, {
-          voiceId: '21m00Tcm4TlvDq8ikWAM', // Rachel voice (female) - natural and clear
-          stability: 0.65,
-          similarityBoost: 0.85,
-          style: 0.15,
-          useSpeakerBoost: true
-        })
-
-        console.log('✅ Speech generated successfully, size:', audioBlob.size, 'bytes')
-
-        // Create audio element from the blob
-        const audioUrl = URL.createObjectURL(audioBlob)
-        audio = new Audio(audioUrl)
-        audio.controls = true
-        audio.style.width = '100%'
-        audio.style.marginTop = '12px'
-
-        audio.addEventListener('ended', () => {
-          URL.revokeObjectURL(audioUrl)
-        })
-      }
-
-      // Add audio element to the page immediately
-      const audioContainer = document.querySelector('.audio-container') || document.createElement('div')
-      audioContainer.className = 'audio-container'
-      audioContainer.innerHTML = ''
-      audioContainer.appendChild(audio)
-
-      const answerDisplay = document.querySelector('.answer-display')
-      if (answerDisplay && answerDisplay.parentNode) {
-        const existingContainer = answerDisplay.parentNode.querySelector('.audio-container')
-        if (existingContainer) {
-          existingContainer.remove()
-        }
-        answerDisplay.parentNode.insertBefore(audioContainer, answerDisplay.nextSibling)
-      }
-
-      // Set animation type based on response text (do this early)
-      const lowerText = text.toLowerCase()
-      if (lowerText.includes('tzaghrita') || lowerText.includes('yell') || lowerText.includes('shout')) {
-        setAnimationType('tzaghrita')
-        console.log('🎬 Animation set to: tzaghrita (Yelling While Standing)')
-      } else {
-        setAnimationType('thanks')
-        console.log('🎬 Animation set to: default (Offensive Idle)')
-      }
-
-      // Save audio file and wait for lip sync JSON generation (only if new audio was generated)
-      if (audioBlob) {
-        console.log('💾 Saving audio file and generating lip sync data...')
-
-        // Save audio file first (this triggers Rhubarb processing on server)
-        await saveAudioFile(audioBlob, audioFilename).catch((saveError) => {
-          console.warn('⚠️ Failed to save audio file:', saveError)
-        })
-      } else {
-        console.log('💾 Using existing audio file, checking for lip sync JSON...')
-      }
-
-      // Wait for lip sync JSON file to be generated before playing audio
-      console.log('⏳ Waiting for lip sync JSON file to be generated...')
-      await processLipSyncWithRhubarb(audioFilename)
-
-      // Now set audio element for lip sync (after JSON is ready)
-      // This ensures lip sync hook can access both audio and data simultaneously
-      setAudioElement(audio)
-      console.log('✅ Audio element and lip sync data ready and synchronized')
-
-      // Connect audio analyser for room reverb + amplitude
-      try {
-        if (analyserRef.current) analyserRef.current.cleanup()
-        const analyserChain = createAudioAnalyser(audio)
-        analyserRef.current = analyserChain
-        setGetAmplitude(analyserChain.getAmplitude)
-        console.log('✅ Audio analyser with room reverb connected')
-      } catch (analyserError) {
-        console.warn('⚠️ Could not connect audio analyser:', analyserError.message)
-      }
-
-      // Small delay to ensure everything is fully initialized
-      await new Promise(resolve => setTimeout(resolve, 50))
-
-      // Play audio smoothly with synchronized lip sync
-      console.log('🎉 Starting synchronized audio playback with lip sync...')
-      try {
-        // Reset audio to start for perfect sync
-        audio.currentTime = 0
-        await audio.play()
-        console.log('🔊 Audio playing smoothly with synchronized lip sync from start')
-      } catch (playError) {
-        console.log('⚠️ Autoplay blocked, user can click play button')
-      }
-
-      return audio
-    } catch (error) {
-      console.error('❌ Text-to-speech error:', error)
-      throw error
+  function stopVAD() {
+    if (vadIntervalRef.current) {
+      clearInterval(vadIntervalRef.current)
+      vadIntervalRef.current = null
     }
-  }
-
-  /**
-   * Load lip sync JSON from public/ folder (after Rhubarb processing)
-   * Waits for Rhubarb to finish processing before loading
-   * The server automatically processes audio with Rhubarb after saving
-   * Returns a promise that resolves when lip sync data is loaded
-   */
-  async function processLipSyncWithRhubarb(filename) {
-    try {
-      console.log('🎬 Loading lip sync data from public/ folder...')
-      setIsProcessing(true)
-
-      // Load JSON file from public/ folder
-      // The server is processing it with Rhubarb in background
-      const jsonFilename = `${filename}.json`
-      const jsonPath = `/${jsonFilename}`
-
-      console.log('📥 Waiting for Rhubarb to generate:', jsonPath)
-
-      // Wait for JSON file to be ready (Rhubarb takes 1-3 seconds to process)
-      let lipSyncData = null
-      const maxAttempts = 10
-      const waitTime = 500 // Check every 500ms
-
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-          const response = await fetch(jsonPath, { cache: 'no-cache' })
-
-          if (response.ok) {
-            const contentType = response.headers.get('content-type')
-            if (contentType && contentType.includes('application/json')) {
-              lipSyncData = await response.json()
-              console.log(`✅ Lip sync JSON loaded successfully (attempt ${attempt})`)
-              break
-            }
-          }
-
-          // File not ready yet, wait and retry
-          if (attempt < maxAttempts) {
-            console.log(`⏳ Waiting for Rhubarb processing... (${attempt}/${maxAttempts})`)
-            await new Promise(resolve => setTimeout(resolve, waitTime))
-          }
-        } catch (error) {
-          // Network error or file not ready, retry
-          if (attempt < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, waitTime))
-          }
-        }
-      }
-
-      if (lipSyncData && lipSyncData.mouthCues && Array.isArray(lipSyncData.mouthCues)) {
-        setLipSyncData(lipSyncData)
-        console.log('✅ Lip sync data loaded and ready:', {
-          mouthCuesCount: lipSyncData.mouthCues.length,
-          duration: lipSyncData.metadata?.duration || 0
-        })
-      } else {
-        console.warn('⚠️ No valid lip sync data found after waiting, using fallback animation')
-        setLipSyncData({
-          metadata: { duration: 0 },
-          mouthCues: []
-        })
-      }
-    } catch (error) {
-      console.error('❌ Error loading lip sync data:', error)
-      console.warn('⚠️ Using fallback animation - audio will still play')
-
-      // Use fallback animation on error - don't block audio playback
-      setLipSyncData({
-        metadata: { duration: 0 },
-        mouthCues: []
-      })
-    } finally {
-      setIsProcessing(false)
+    if (vadContextRef.current) {
+      vadContextRef.current.close().catch(() => {})
+      vadContextRef.current = null
     }
-  }
-
-  /**
-   * Helper function to load and play lip sync files
-   */
-  async function loadLipSyncFiles(jsonPath, wavPath, containerRef, setIsLoading) {
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      console.log(`🎬 Loading lip sync files: ${jsonPath} & ${wavPath}`)
-
-      // Load JSON file
-      const jsonResponse = await fetch(jsonPath)
-      if (!jsonResponse.ok) {
-        throw new Error(`Failed to load JSON file: ${jsonResponse.status}`)
-      }
-      const lipSyncData = await jsonResponse.json()
-      console.log('✅ Loaded lip sync data:', lipSyncData)
-
-      // Load audio file
-      const audio = new Audio(wavPath)
-      audio.controls = true
-      audio.style.width = '100%'
-      audio.style.marginTop = '12px'
-
-      // Set up audio event listeners
-      audio.addEventListener('loadeddata', () => {
-        console.log('✅ Audio file loaded, duration:', audio.duration)
-      })
-
-      audio.addEventListener('error', (e) => {
-        console.error('❌ Audio load error:', e)
-        setError('Failed to load audio file')
-        setIsLoading(false)
-      })
-
-      // Set lip sync data and audio element
-      setLipSyncData(lipSyncData)
-      setAudioElement(audio)
-
-      // Set animation type based on which file is being loaded
-      // Both 'thanks' and 'thanks_1' use the same animations
-      if (wavPath.includes('thanks')) {
-        setAnimationType('thanks')
-        console.log('🎬 Animation set to: thanks (Salute → Offensive Idle)')
-      } else if (wavPath.includes('tzaghrita')) {
-        setAnimationType('tzaghrita')
-        console.log('🎬 Animation set to: tzaghrita (Yelling While Standing)')
-      } else {
-        setAnimationType(null)
-      }
-
-      console.log('✅ Lip sync data and audio set, ready to play')
-
-      // Add audio element to container for display
-      if (containerRef.current) {
-        containerRef.current.innerHTML = ''
-        containerRef.current.appendChild(audio)
-      }
-
-      // Auto-play audio (may be blocked by browser)
-      try {
-        await audio.play()
-        console.log('🔊 Audio playing')
-      } catch (playError) {
-        console.log('⚠️ Autoplay blocked, user can click play button on audio element')
-        // Audio element will be visible with controls, user can click play
-      }
-
-    } catch (err) {
-      console.error('❌ Error loading lip sync files:', err)
-      setError(err.message || 'Failed to load lip sync files')
-    } finally {
-      setIsLoading(false)
+    vadAnalyserRef.current = null
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop())
+      streamRef.current = null
     }
-  }
-
-  /**
-   * Test lip sync with tzaghrita files
-   */
-  async function testHardcodedLipSync() {
-    await loadLipSyncFiles('/tzaghrita.json', '/tzaghrita.wav', testAudioContainerRef, setIsTestingLipSync)
-  }
-
-  /**
-   * Test lip sync with thanks files
-   */
-  async function testThanksLipSync() {
-    await loadLipSyncFiles('/thanks.json', '/thanks.wav', thanksAudioContainerRef, setIsTestingThanks)
-  }
-
-  /**
-   * Test lip sync with thanks_1 files
-   */
-  async function testThanks1LipSync() {
-    await loadLipSyncFiles('/thanks_1.json', '/thanks_1.wav', thanks1AudioContainerRef, setIsTestingThanks1)
-  }
-
-  /**
-   * Start recording audio from microphone
-   */
-  async function startRecording() {
-    try {
-      console.log('🎤 Requesting microphone access...')
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
-
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus'
-      })
-      mediaRecorderRef.current = mediaRecorder
-      audioChunksRef.current = []
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data)
-        }
-      }
-
-      mediaRecorder.onstop = async () => {
-        console.log('🛑 Recording stopped')
-        // Convert recorded chunks to blob
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-
-        // Convert WebM to WAV for ElevenLabs STT
-        const wavBlob = await convertWebMToWav(audioBlob)
-
-        // Transcribe using ElevenLabs
-        setIsTranscribing(true)
-        try {
-          const transcribedText = await speechToTextWithElevenLabs(wavBlob, {
-            modelId: 'scribe_v1',
-            languageCode: 'en',
-            diarize: false
-          })
-
-          console.log('✅ Transcribed text:', transcribedText)
-
-          if (transcribedText && transcribedText.trim()) {
-            // Set the transcribed text in the textarea
-            setText(transcribedText)
-            // Automatically submit the form
-            await handleSubmitWithText(transcribedText)
-          } else {
-            setError('No speech detected. Please try again.')
-          }
-        } catch (sttError) {
-          console.error('❌ STT Error:', sttError)
-          setError(`Failed to transcribe audio: ${sttError.message}`)
-        } finally {
-          setIsTranscribing(false)
-        }
-
-        // Stop all tracks
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop())
-          streamRef.current = null
-        }
-      }
-
-      mediaRecorder.start()
-      setIsRecording(true)
-      console.log('✅ Recording started')
-    } catch (err) {
-      console.error('❌ Error accessing microphone:', err)
-      setError('Failed to access microphone. Please check permissions.')
-      setIsRecording(false)
-    }
-  }
-
-  /**
-   * Stop recording audio
-   */
-  function stopRecording() {
-    if (mediaRecorderRef.current && isRecording) {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
-      setIsRecording(false)
-      console.log('🛑 Stopping recording...')
+    }
+    mediaRecorderRef.current = null
+  }
+
+  function startRecording(stream) {
+    audioChunksRef.current = []
+    const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
+    mediaRecorderRef.current = mediaRecorder
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data)
+    }
+
+    mediaRecorder.onstop = async () => {
+      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+      if (audioBlob.size < 1000) {
+        // Too short, go back to listening
+        setConvState(STATE.LISTENING)
+        return
+      }
+      await processUserAudio(audioBlob)
+    }
+
+    mediaRecorder.start()
+  }
+
+  function stopRecording() {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
     }
   }
 
-  /**
-   * Convert WebM blob to WAV blob
-   */
+  // === Convert WebM to WAV ===
   async function convertWebMToWav(webmBlob) {
-    try {
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)()
-      const arrayBuffer = await webmBlob.arrayBuffer()
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-
-      // Convert AudioBuffer to WAV
-      const wav = audioBufferToWav(audioBuffer)
-      const wavBlob = new Blob([wav], { type: 'audio/wav' })
-
-      audioContext.close()
-      return wavBlob
-    } catch (error) {
-      console.error('❌ Error converting WebM to WAV:', error)
-      throw error
-    }
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)()
+    const arrayBuffer = await webmBlob.arrayBuffer()
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+    const wav = audioBufferToWav(audioBuffer)
+    audioContext.close()
+    return new Blob([wav], { type: 'audio/wav' })
   }
 
-  /**
-   * Convert AudioBuffer to WAV format
-   */
   function audioBufferToWav(buffer) {
     const length = buffer.length
     const sampleRate = buffer.sampleRate
@@ -546,37 +182,24 @@ function AppContent() {
     let offset = 0
 
     const writeString = (str) => {
-      for (let i = 0; i < str.length; i++) {
-        view.setUint8(offset + i, str.charCodeAt(i))
-      }
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
       offset += str.length
     }
 
-    // WAV header
     writeString('RIFF')
-    view.setUint32(offset, 36 + length * channels * 2, true)
-    offset += 4
+    view.setUint32(offset, 36 + length * channels * 2, true); offset += 4
     writeString('WAVE')
     writeString('fmt ')
-    view.setUint32(offset, 16, true)
-    offset += 4
-    view.setUint16(offset, 1, true) // PCM format
-    offset += 2
-    view.setUint16(offset, channels, true)
-    offset += 2
-    view.setUint32(offset, sampleRate, true)
-    offset += 4
-    view.setUint32(offset, sampleRate * channels * 2, true) // Byte rate
-    offset += 4
-    view.setUint16(offset, channels * 2, true) // Block align
-    offset += 2
-    view.setUint16(offset, 16, true) // Bits per sample
-    offset += 2
+    view.setUint32(offset, 16, true); offset += 4
+    view.setUint16(offset, 1, true); offset += 2
+    view.setUint16(offset, channels, true); offset += 2
+    view.setUint32(offset, sampleRate, true); offset += 4
+    view.setUint32(offset, sampleRate * channels * 2, true); offset += 4
+    view.setUint16(offset, channels * 2, true); offset += 2
+    view.setUint16(offset, 16, true); offset += 2
     writeString('data')
-    view.setUint32(offset, length * channels * 2, true)
-    offset += 4
+    view.setUint32(offset, length * channels * 2, true); offset += 4
 
-    // Convert float samples to 16-bit PCM
     for (let channel = 0; channel < channels; channel++) {
       const channelData = buffer.getChannelData(channel)
       for (let i = 0; i < length; i++) {
@@ -585,156 +208,338 @@ function AppContent() {
         offset += 2
       }
     }
-
     return arrayBuffer
   }
 
-  /**
-   * Handle submit with text (used for both manual and voice input)
-   * Maintains conversation history for context
-   */
-  async function handleSubmitWithText(inputText) {
-    if (!inputText || !inputText.trim()) {
-      setError('Please enter some text')
-      return
-    }
-
-    setLoading(true)
+  // === Process user audio: STT -> Groq -> TTS -> play ===
+  async function processUserAudio(webmBlob) {
+    setConvState(STATE.THINKING)
     setError(null)
-    setAnswerText(null)
 
     try {
-      const userQuery = inputText.trim()
-      
-      // Check for predefined responses first
-      const predefined = getPredefinedResponse(userQuery)
-      let responseText = null
+      // STT
+      const wavBlob = await convertWebMToWav(webmBlob)
+      const transcribedText = await speechToTextWithElevenLabs(wavBlob, {
+        modelId: 'scribe_v1',
+        languageCode: 'en',
+        diarize: false
+      })
+
+      if (!transcribedText || !transcribedText.trim()) {
+        setConvState(STATE.LISTENING)
+        return
+      }
+
+      console.log('[VAD] User said:', transcribedText)
+
+      // Get response (predefined or Groq)
+      const predefined = getPredefinedResponse(transcribedText)
+      let responseText
 
       if (predefined) {
         responseText = predefined
-        console.log('✅ Using predefined response:', responseText)
-        // Still add to conversation history for context
-        setConversationHistory(prev => [
-          ...prev,
-          { role: 'user', content: userQuery },
-          { role: 'assistant', content: responseText }
-        ])
       } else {
-        // Limit conversation history to last 10 exchanges (20 messages) to avoid token limits
-        // Keep the most recent messages for better context
         const limitedHistory = conversationHistory.slice(-20)
-
-        // Get interactive response with conversation history
-        console.log('🔄 Calling OpenAI API for:', userQuery)
-        console.log(`📚 Sending ${limitedHistory.length} previous messages for context`)
-
-        responseText = await getInteractiveResponse(userQuery, limitedHistory)
-        console.log('✅ Received response:', responseText)
-
-        // Update conversation history with new exchange
-        // Keep only last 20 messages (10 exchanges) to manage token usage
-        setConversationHistory(prev => {
-          const updated = [
-            ...prev,
-            { role: 'user', content: userQuery },
-            { role: 'assistant', content: responseText }
-          ]
-          // Keep only last 20 messages (10 exchanges)
-          return updated.slice(-20)
-        })
+        responseText = await getInteractiveResponse(transcribedText, limitedHistory)
       }
 
-      // Ensure we have text
+      // Update conversation history
+      setConversationHistory(prev => {
+        const updated = [
+          ...prev,
+          { role: 'user', content: transcribedText },
+          { role: 'assistant', content: responseText }
+        ]
+        return updated.slice(-20)
+      })
+
       if (!responseText || !responseText.trim()) {
-        responseText = "I'm sorry, I couldn't process that request."
+        responseText = "I'm sorry, I couldn't process that."
       }
 
       setAnswerText(responseText)
 
-      // Show character count warning for long responses
-      if (responseText.length > 400) {
-        console.warn(`⚠️ Long response (${responseText.length} chars) - will be truncated to 500 chars for TTS`)
-      }
+      // TTS + lip sync
+      setConvState(STATE.SPEAKING)
+      await generateAndPlaySpeech(responseText)
 
-      // Convert text to speech using ElevenLabs API only
-      try {
-        await generateSpeechFromText(responseText)
-      } catch (ttsError) {
-        // Extract error message safely
-        const errorMessage = ttsError instanceof Error
-          ? ttsError.message
-          : (ttsError?.message || String(ttsError))
-
-        console.error('TTS Error:', ttsError)
-
-        // Check if it's a quota error
-        if (errorMessage && (errorMessage.includes('quota') || errorMessage.includes('credit') || errorMessage.includes('exceed'))) {
-          setError(`ElevenLabs API Quota Exceeded: ${errorMessage}. The response text is displayed above, but audio generation failed. Please check your ElevenLabs account credits.`)
-          // Don't throw - show the text response even if audio fails
-          return
-        }
-
-        // For other audio errors, show warning but don't block
-        setError(`Audio generation failed: ${errorMessage}. The response text is displayed above.`)
-        console.warn('Audio generation failed, but continuing with text response')
-        return
+      // When audio ends, resume listening
+      if (audioElementRef.current) {
+        audioElementRef.current.addEventListener('ended', () => {
+          if (convStateRef.current === STATE.SPEAKING) {
+            setConvState(STATE.LISTENING)
+          }
+        }, { once: true })
       }
 
     } catch (err) {
-      console.error('Error:', err)
-      const errorMessage = err.message || 'There was an issue processing your request.'
-
-      // Provide helpful error messages
-      if (errorMessage.includes('Cannot connect to OpenAI API') ||
-        errorMessage.includes('Failed to fetch') ||
-        errorMessage.includes('ERR_CONNECTION') ||
-        errorMessage.includes('NetworkError')) {
-        setError('Cannot connect to OpenAI API. Please check your internet connection.')
-      } else {
-        setError(errorMessage)
-      }
-
-      setAnswerText("I encountered an error processing your request. " + errorMessage)
-    } finally {
-      setLoading(false)
+      console.error('[VAD] Error:', err)
+      setError(err.message || 'Something went wrong')
+      setConvState(STATE.LISTENING)
     }
   }
 
-  /**
-   * Clear conversation history
-   */
-  function clearConversation() {
-    setConversationHistory([])
-    setAnswerText(null)
-    setText('')
-    console.log('🗑️ Conversation history cleared')
+  // === Check if cached audio exists ===
+  async function checkAudioExists(filename) {
+    try {
+      const response = await fetch(`/${filename}.wav`, { method: 'HEAD' })
+      return response.ok
+    } catch { return false }
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault()
-    await handleSubmitWithText(text)
+  async function loadExistingAudio(filename) {
+    const audio = new Audio(`/${filename}.wav`)
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Audio loading timeout')), 10000)
+      audio.addEventListener('loadeddata', () => { clearTimeout(timeout); resolve(audio) })
+      audio.addEventListener('error', () => { clearTimeout(timeout); reject(new Error('Audio load error')) })
+      audio.load()
+    })
+  }
+
+  // === Generate speech and play with lip sync ===
+  async function generateAndPlaySpeech(text) {
+    try {
+      const MAX_TEXT_LENGTH = 500
+      const truncatedText = text.length > MAX_TEXT_LENGTH ? text.substring(0, MAX_TEXT_LENGTH) + '...' : text
+      const audioFilename = sanitizeFilename(truncatedText)
+
+      const audioExists = await checkAudioExists(audioFilename)
+      let audio
+      let audioBlob = null
+
+      if (audioExists) {
+        try {
+          audio = await loadExistingAudio(audioFilename)
+        } catch {
+          audio = null
+        }
+      }
+
+      if (!audio) {
+        audioBlob = await generateSpeechWithElevenLabs(truncatedText, {
+          voiceId: '21m00Tcm4TlvDq8ikWAM',
+          stability: 0.65,
+          similarityBoost: 0.85,
+          style: 0.15,
+          useSpeakerBoost: true
+        })
+
+        const audioUrl = URL.createObjectURL(audioBlob)
+        audio = new Audio(audioUrl)
+        audio.addEventListener('ended', () => URL.revokeObjectURL(audioUrl))
+      }
+
+      audioElementRef.current = audio
+
+      setAnimationType('thanks')
+
+      // Save audio and generate lip sync
+      if (audioBlob) {
+        await saveAudioFile(audioBlob, audioFilename).catch(() => {})
+      }
+
+      await processLipSyncWithRhubarb(audioFilename)
+      setAudioElement(audio)
+
+      // Audio analyser
+      try {
+        if (analyserRef.current) analyserRef.current.cleanup()
+        const analyserChain = createAudioAnalyser(audio)
+        analyserRef.current = analyserChain
+        setGetAmplitude(analyserChain.getAmplitude)
+      } catch {}
+
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      // Play audio
+      audio.currentTime = 0
+
+      // When audio ends, transition state (callers may override with their own listener)
+      audio.addEventListener('ended', () => {
+        audioElementRef.current = null
+      }, { once: true })
+
+      await audio.play()
+
+    } catch (err) {
+      console.error('[TTS] Error:', err)
+      setError(`Audio error: ${err.message}`)
+      if (convStateRef.current === STATE.SPEAKING) {
+        setConvState(STATE.LISTENING)
+      }
+    }
+  }
+
+  // === Load lip sync JSON ===
+  async function processLipSyncWithRhubarb(filename) {
+    try {
+      setIsProcessing(true)
+      const jsonPath = `/${filename}.json`
+      let lipSyncData = null
+      const maxAttempts = 10
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const response = await fetch(jsonPath, { cache: 'no-cache' })
+          if (response.ok) {
+            const contentType = response.headers.get('content-type')
+            if (contentType && contentType.includes('application/json')) {
+              lipSyncData = await response.json()
+              break
+            }
+          }
+          if (attempt < maxAttempts) await new Promise(r => setTimeout(r, 500))
+        } catch {
+          if (attempt < maxAttempts) await new Promise(r => setTimeout(r, 500))
+        }
+      }
+
+      if (lipSyncData && lipSyncData.mouthCues && Array.isArray(lipSyncData.mouthCues)) {
+        setLipSyncData(lipSyncData)
+      } else {
+        setLipSyncData({ metadata: { duration: 0 }, mouthCues: [] })
+      }
+    } catch {
+      setLipSyncData({ metadata: { duration: 0 }, mouthCues: [] })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  // === Toggle conversation ===
+  const toggleConversation = useCallback(async () => {
+    if (convState !== STATE.IDLE) {
+      // Stop conversation
+      stopVAD()
+      if (audioElementRef.current) {
+        audioElementRef.current.pause()
+        audioElementRef.current = null
+      }
+      setConvState(STATE.IDLE)
+      return
+    }
+
+    // Start conversation
+    setError(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+      startVAD(stream)
+      setConvState(STATE.LISTENING)
+    } catch (err) {
+      setError('Microphone access denied. Please allow microphone permissions.')
+    }
+  }, [convState])
+
+  // === Handle text input submit ===
+  const handleTextSubmit = useCallback(async (e) => {
+    e?.preventDefault()
+    const input = textInput.trim()
+    if (!input || convState === STATE.THINKING || convState === STATE.SPEAKING) return
+
+    setTextInput('')
+    setError(null)
+
+    // Pause VAD listening while processing text
+    const wasListening = convState === STATE.LISTENING
+    setConvState(STATE.THINKING)
+
+    try {
+      const predefined = getPredefinedResponse(input)
+      let responseText
+
+      if (predefined) {
+        responseText = predefined
+      } else {
+        const limitedHistory = conversationHistory.slice(-20)
+        responseText = await getInteractiveResponse(input, limitedHistory)
+      }
+
+      setConversationHistory(prev => {
+        const updated = [
+          ...prev,
+          { role: 'user', content: input },
+          { role: 'assistant', content: responseText }
+        ]
+        return updated.slice(-20)
+      })
+
+      if (!responseText || !responseText.trim()) {
+        responseText = "I'm sorry, I couldn't process that."
+      }
+
+      setAnswerText(responseText)
+      setConvState(STATE.SPEAKING)
+
+      // Override the ended handler to return to previous state
+      const prevEnded = audioElementRef.current
+      await generateAndPlaySpeech(responseText)
+
+      // After speech ends, if VAD was active resume listening, otherwise go idle
+      if (audioElementRef.current) {
+        audioElementRef.current.addEventListener('ended', () => {
+          audioElementRef.current = null
+          setConvState(wasListening ? STATE.LISTENING : STATE.IDLE)
+        }, { once: true })
+      }
+    } catch (err) {
+      console.error('[Text] Error:', err)
+      setError(err.message || 'Something went wrong')
+      setConvState(wasListening ? STATE.LISTENING : STATE.IDLE)
+    }
+  }, [textInput, convState, conversationHistory])
+
+  // State display
+  const stateLabel = {
+    [STATE.IDLE]: 'Start Conversation',
+    [STATE.LISTENING]: 'Listening...',
+    [STATE.THINKING]: 'Thinking...',
+    [STATE.SPEAKING]: 'Speaking...',
+  }
+
+  const stateColor = {
+    [STATE.IDLE]: '#3b82f6',
+    [STATE.LISTENING]: '#22c55e',
+    [STATE.THINKING]: '#f59e0b',
+    [STATE.SPEAKING]: '#8b5cf6',
+  }
+
+  // Loading screen
+  if (!sceneReady) {
+    return (
+      <div style={{
+        width: '100vw',
+        height: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#2a1810',
+        color: '#ffe8cc',
+        fontFamily: 'Georgia, serif',
+      }}>
+        <div className="loading-spinner" style={{ width: 40, height: 40, borderWidth: 3, marginBottom: 20 }} />
+        <div style={{ fontSize: 22, fontWeight: 600 }}>Preparing Ada's Study...</div>
+        <div style={{ fontSize: 14, opacity: 0.6, marginTop: 8 }}>Loading 3D environment</div>
+      </div>
+    )
   }
 
   return (
     <div className="app-container">
       {/* 3D AVATAR CANVAS */}
       <div className="avatar-section">
-        <Canvas 
+        <Canvas
           camera={{ position: [0, 1.5, 4], fov: 42 }}
           shadows='soft'
           gl={{ antialias: true }}
           style={{ background: '#2a1a0e' }}
         >
-          {/* Warm candlelit fog — subtle, keeps room feeling bright */}
           <fog attach="fog" args={['#3a2810', 6, 22]} />
-          {/* Victorian Era Environment - Ada Lovelace's Study */}
           <VictorianEnvironment />
-          
-          {/* Avatar - positioned in the scene */}
           <Avatar />
-
-          {/* Camera controls */}
-          <OrbitControls 
+          <OrbitControls
             minDistance={1.5}
             maxDistance={8}
             minPolarAngle={Math.PI / 6}
@@ -743,148 +548,129 @@ function AppContent() {
           />
         </Canvas>
       </div>
-      
-      {/* FIXED BOTTOM FORM - COMPACT */}
-      <form 
-        onSubmit={handleSubmit} 
-        className="tts-form"
-        style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          backdropFilter: 'blur(10px)',
-          padding: '12px 20px',
-          boxShadow: '0 -2px 10px rgba(0,0,0,0.1)',
-          zIndex: 1000,
-          margin: 0
-        }}
-      >
-        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <textarea
-              id="text-input"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Type your question here or use the microphone..."
-              rows={1}
-              maxLength={1000}
-              disabled={loading || isRecording || isTranscribing}
-              style={{ 
-                flex: 1,
-                padding: '10px 12px',
-                fontSize: '14px',
-                borderRadius: '20px',
-                border: '1px solid #d1d5db',
-                resize: 'none',
-                minHeight: '40px',
-                maxHeight: '100px'
-              }}
-              onInput={(e) => {
-                e.target.style.height = 'auto';
-                e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px';
-              }}
-            />
-            
-            {!isRecording ? (
-              <button
-                type="button"
-                onClick={startRecording}
-                disabled={loading || isTranscribing}
-                style={{
-                  padding: '8px',
-                  backgroundColor: isTranscribing ? '#d1d5db' : '#ef4444',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '40px',
-                  height: '40px',
-                  cursor: isTranscribing ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '18px',
-                  flexShrink: 0,
-                  transition: 'all 0.2s'
-                }}
-                title="Start recording"
-              >
-                🎤
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={stopRecording}
-                style={{
-                  padding: '8px',
-                  backgroundColor: '#ef4444',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '40px',
-                  height: '40px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '18px',
-                  flexShrink: 0,
-                  animation: 'pulse 1.5s infinite'
-                }}
-                title="Stop recording"
-              >
-                ⏹️
-              </button>
-            )}
 
-            <button 
-              type="submit" 
-              disabled={loading || !text.trim() || isRecording || isTranscribing}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: (loading || !text.trim() || isRecording || isTranscribing) ? '#d1d5db' : '#3b82f6',
-                color: 'white',
-                border: 'none',
-                borderRadius: '20px',
-                cursor: (loading || !text.trim() || isRecording || isTranscribing) ? 'not-allowed' : 'pointer',
-                fontSize: '14px',
-                fontWeight: '500',
-                flexShrink: 0,
-                minWidth: '80px',
-                transition: 'all 0.2s'
-              }}
-            >
-              {loading ? 'Processing...' : isTranscribing ? 'Transcribing...' : 'Send'}
-            </button>
+      {/* BOTTOM BAR */}
+      <div style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backdropFilter: 'blur(10px)',
+        padding: '14px 20px',
+        boxShadow: '0 -2px 10px rgba(0,0,0,0.2)',
+        zIndex: 1000,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '8px',
+      }}>
+        {/* Answer text */}
+        {answerText && (
+          <div style={{
+            fontSize: 13,
+            color: '#e8dcc8',
+            maxWidth: 600,
+            textAlign: 'center',
+            lineHeight: 1.5,
+            opacity: 0.85,
+            maxHeight: 60,
+            overflow: 'hidden',
+          }}>
+            {answerText}
           </div>
+        )}
 
-          {(isRecording || isTranscribing) && (
-            <div style={{ 
-              fontSize: '11px', 
-              color: isRecording ? '#ef4444' : '#666', 
-              marginTop: '6px',
-              textAlign: 'center',
-              fontWeight: isRecording ? 'bold' : 'normal'
-            }}>
-              {isRecording ? 'Recording...' : 'Transcribing...'}
-            </div>
-          )}
+        {/* Text input row */}
+        <form
+          onSubmit={handleTextSubmit}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', maxWidth: 650 }}
+        >
+          <input
+            type="text"
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            placeholder="Type a message..."
+            disabled={convState === STATE.THINKING || convState === STATE.SPEAKING}
+            style={{
+              flex: 1,
+              padding: '10px 16px',
+              fontSize: 14,
+              borderRadius: 20,
+              border: '1px solid rgba(255,255,255,0.15)',
+              background: 'rgba(255,255,255,0.08)',
+              color: '#fff',
+              outline: 'none',
+            }}
+          />
+          <button
+            type="submit"
+            disabled={!textInput.trim() || convState === STATE.THINKING || convState === STATE.SPEAKING}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: (!textInput.trim() || convState === STATE.THINKING || convState === STATE.SPEAKING) ? '#555' : '#3b82f6',
+              color: 'white',
+              border: 'none',
+              borderRadius: 20,
+              cursor: (!textInput.trim() || convState === STATE.THINKING || convState === STATE.SPEAKING) ? 'not-allowed' : 'pointer',
+              fontSize: 14,
+              fontWeight: 600,
+              flexShrink: 0,
+              transition: 'all 0.2s',
+            }}
+          >
+            Send
+          </button>
 
-          {error && (
-            <div style={{
-              fontSize: '12px',
-              color: '#ef4444',
-              marginTop: '8px',
-              padding: '8px 12px',
-              backgroundColor: '#fee2e2',
-              borderRadius: '8px',
-              textAlign: 'center'
-            }}>
-              {error}
-            </div>
-          )}
-        </div>
-      </form>
+          {/* Voice conversation toggle */}
+          <button
+            type="button"
+            onClick={toggleConversation}
+            disabled={convState === STATE.THINKING}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: convState === STATE.IDLE ? 'transparent' : 'transparent',
+              color: 'white',
+              border: `2px solid ${stateColor[convState]}`,
+              borderRadius: 20,
+              cursor: convState === STATE.THINKING ? 'not-allowed' : 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+              transition: 'all 0.3s',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {convState !== STATE.IDLE && (
+              <span style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                backgroundColor: stateColor[convState],
+                display: 'inline-block',
+                animation: convState === STATE.LISTENING ? 'pulse 1.5s infinite' : 'none',
+              }} />
+            )}
+            {stateLabel[convState]}
+          </button>
+        </form>
+
+        {error && (
+          <div style={{
+            fontSize: 12,
+            color: '#ef4444',
+            padding: '6px 12px',
+            backgroundColor: '#fee2e2',
+            borderRadius: 8,
+            textAlign: 'center',
+            maxWidth: 500,
+          }}>
+            {error}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
