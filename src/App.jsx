@@ -515,8 +515,8 @@ function AppContent() {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#2a1810',
-        color: '#ffe8cc',
+        background: '#d4c8a8',
+        color: '#4a3a20',
         fontFamily: 'Georgia, serif',
       }}>
         <div className="loading-spinner" style={{ width: 40, height: 40, borderWidth: 3, marginBottom: 20 }} />
@@ -534,9 +534,9 @@ function AppContent() {
           camera={{ position: [0, 1.5, 4], fov: 42 }}
           shadows='soft'
           gl={{ antialias: true }}
-          style={{ background: '#2a1a0e' }}
+          style={{ background: '#d4c8a8' }}
         >
-          <fog attach="fog" args={['#3a2810', 6, 22]} />
+          <fog attach="fog" args={['#e0d8c0', 10, 25]} />
           <VictorianEnvironment />
           <Avatar />
           <OrbitControls
