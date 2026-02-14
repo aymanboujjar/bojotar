@@ -199,7 +199,7 @@ export default function VictorianEnvironment() {
     candleIdx = 0
 
     return (
-        <group position={[0, 0, 0]}>
+        <group position={[0, 0, 0]} scale={1.5}>
 
             {/* ===== FLOOR — polished wood planks ===== */}
             {Array.from({ length: 10 }).map((_, i) => (
@@ -305,70 +305,6 @@ export default function VictorianEnvironment() {
                 <TallBookshelf position={[0, 0, 0]} shelves={5} booksPerShelf={10} width={2.6} />
             </group>
 
-            {/* ===== READING TABLE — full-size Victorian desk ===== */}
-            <group position={[0.5, -0.5, 0.3]}>
-                {/* Table top */}
-                <mesh position={[0, 0.82, 0]} castShadow receiveShadow>
-                    <boxGeometry args={[2.0, 0.07, 1.0]} />
-                    <meshStandardMaterial color={c.medWood} roughness={0.45} metalness={0.05} />
-                </mesh>
-                {/* Table apron */}
-                <mesh position={[0, 0.78, 0]}>
-                    <boxGeometry args={[2.05, 0.04, 1.05]} />
-                    <meshStandardMaterial color={c.darkWood} roughness={0.55} />
-                </mesh>
-                {/* Turned legs */}
-                {[[-0.88, -0.42], [-0.88, 0.42], [0.88, -0.42], [0.88, 0.42]].map(([x, z], i) => (
-                    <group key={`tl-${i}`} position={[x, 0, z]}>
-                        <mesh position={[0, 0.38, 0]}>
-                            <cylinderGeometry args={[0.04, 0.05, 0.78, 8]} />
-                            <meshStandardMaterial color={c.darkWood} roughness={0.55} />
-                        </mesh>
-                        <mesh position={[0, 0.04, 0]}>
-                            <sphereGeometry args={[0.045, 8, 6]} />
-                            <meshStandardMaterial color={c.darkWood} roughness={0.55} />
-                        </mesh>
-                    </group>
-                ))}
-
-                {/* Open book */}
-                <group position={[-0.25, 0.87, 0]} rotation={[-0.12, 0.05, 0]}>
-                    <mesh position={[-0.18, 0.01, 0]} rotation={[0, 0, 0.025]}>
-                        <boxGeometry args={[0.35, 0.02, 0.48]} />
-                        <meshStandardMaterial color="#f2ecd8" roughness={0.95} />
-                    </mesh>
-                    <mesh position={[0.18, 0.01, 0]} rotation={[0, 0, -0.025]}>
-                        <boxGeometry args={[0.35, 0.02, 0.48]} />
-                        <meshStandardMaterial color="#f0e8d4" roughness={0.95} />
-                    </mesh>
-                    <mesh position={[0, 0.005, 0]}>
-                        <boxGeometry args={[0.03, 0.025, 0.5]} />
-                        <meshStandardMaterial color={c.leather} roughness={0.7} />
-                    </mesh>
-                </group>
-
-                {/* Ink bottle + quill */}
-                <mesh position={[0.65, 0.89, -0.3]}>
-                    <cylinderGeometry args={[0.028, 0.032, 0.08, 8]} />
-                    <meshStandardMaterial color="#0a0a0a" roughness={0.4} metalness={0.15} />
-                </mesh>
-                <mesh position={[0.65, 0.96, -0.3]} rotation={[0.25, 0, 0.08]}>
-                    <cylinderGeometry args={[0.004, 0.004, 0.25, 4]} />
-                    <meshStandardMaterial color="#f5f0e8" />
-                </mesh>
-
-                {/* Book pile */}
-                {[0, 1, 2, 3].map((i) => (
-                    <mesh key={`bp-${i}`} position={[0.6, 0.87 + i * 0.04, 0.2]} rotation={[0, Math.sin(i * 1.5) * 0.15, 0]} castShadow>
-                        <boxGeometry args={[0.24, 0.035, 0.32]} />
-                        <meshStandardMaterial color={bookColors[(i + 3) % bookColors.length]} roughness={0.8} />
-                    </mesh>
-                ))}
-
-                {/* Candelabra on table */}
-                <Candelabra position={[0.75, 0.86, -0.1]} />
-            </group>
-
             {/* ===== PORTRAIT FRAME above center ===== */}
             <group position={[0, 3.0, -3.88]}>
                 <mesh>
@@ -381,62 +317,11 @@ export default function VictorianEnvironment() {
                 </mesh>
             </group>
 
-            {/* ===== ARMCHAIR — full-size Victorian wingback ===== */}
-            <group position={[-1.8, -0.5, 0.5]} rotation={[0, 0.4, 0]}>
-                {/* Seat */}
-                <mesh position={[0, 0.45, 0]}>
-                    <boxGeometry args={[0.85, 0.1, 0.8]} />
-                    <meshStandardMaterial color={c.leather} roughness={0.8} />
-                </mesh>
-                {/* Back — tall wingback style */}
-                <mesh position={[0, 0.85, -0.35]}>
-                    <boxGeometry args={[0.85, 0.75, 0.1]} />
-                    <meshStandardMaterial color={c.leather} roughness={0.8} />
-                </mesh>
-                {/* Wings */}
-                <mesh position={[-0.4, 0.78, -0.15]} rotation={[0, 0.25, 0]}>
-                    <boxGeometry args={[0.08, 0.55, 0.35]} />
-                    <meshStandardMaterial color={c.leather} roughness={0.8} />
-                </mesh>
-                <mesh position={[0.4, 0.78, -0.15]} rotation={[0, -0.25, 0]}>
-                    <boxGeometry args={[0.08, 0.55, 0.35]} />
-                    <meshStandardMaterial color={c.leather} roughness={0.8} />
-                </mesh>
-                {/* Arms */}
-                <mesh position={[-0.42, 0.58, 0.05]}>
-                    <boxGeometry args={[0.08, 0.18, 0.7]} />
-                    <meshStandardMaterial color={c.leather} roughness={0.8} />
-                </mesh>
-                <mesh position={[0.42, 0.58, 0.05]}>
-                    <boxGeometry args={[0.08, 0.18, 0.7]} />
-                    <meshStandardMaterial color={c.leather} roughness={0.8} />
-                </mesh>
-                {/* Arm top pads */}
-                <mesh position={[-0.42, 0.68, 0.05]}>
-                    <boxGeometry args={[0.1, 0.04, 0.72]} />
-                    <meshStandardMaterial color="#7a2a18" roughness={0.85} />
-                </mesh>
-                <mesh position={[0.42, 0.68, 0.05]}>
-                    <boxGeometry args={[0.1, 0.04, 0.72]} />
-                    <meshStandardMaterial color="#7a2a18" roughness={0.85} />
-                </mesh>
-                {/* Legs — turned wood */}
-                {[[-0.32, -0.3], [-0.32, 0.3], [0.32, -0.3], [0.32, 0.3]].map(([x, z], i) => (
-                    <mesh key={`al-${i}`} position={[x, 0.2, z]}>
-                        <cylinderGeometry args={[0.03, 0.04, 0.42, 8]} />
-                        <meshStandardMaterial color={c.darkWood} roughness={0.6} />
-                    </mesh>
-                ))}
-                {/* Seat cushion */}
-                <mesh position={[0, 0.52, 0.02]}>
-                    <boxGeometry args={[0.72, 0.08, 0.65]} />
-                    <meshStandardMaterial color="#7a2a18" roughness={0.9} />
-                </mesh>
-            </group>
-
-            {/* ===== FLOOR CANDELABRAS ===== */}
-            <Candelabra position={[-1.0, -0.05, -2.0]} />
-            <Candelabra position={[1.0, -0.05, -2.0]} />
+            {/* ===== WALL CANDELABRAS ===== */}
+            <Candelabra position={[-4.6, 1.2, -2.5]} />
+            <Candelabra position={[4.6, 1.2, -2.5]} />
+            <Candelabra position={[-4.6, 1.2, 1.5]} />
+            <Candelabra position={[4.6, 1.2, 1.5]} />
 
             {/* ===== LIGHTING — bright, warm, well-lit library ===== */}
 

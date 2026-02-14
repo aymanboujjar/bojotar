@@ -102,8 +102,8 @@ async function processWithRhubarb(wavFile, jsonFile) {
       return
     }
     
-    // Run rhubarb command
-    const command = `"${rhubarbExe}" -f json "${wavPath}" -o "${jsonPath}"`
+    // Run rhubarb command with phonetic recognizer for better accuracy
+    const command = `"${rhubarbExe}" -f json -r phonetic "${wavPath}" -o "${jsonPath}"`
     console.log(`🔄 Processing with Rhubarb: ${wavFile} -> ${jsonFile}`)
     
     const { stdout, stderr } = await execAsync(command)

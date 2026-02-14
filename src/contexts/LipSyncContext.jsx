@@ -8,6 +8,8 @@ export function LipSyncProvider({ children }) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [animationType, setAnimationType] = useState(null) // 'thanks', 'tzaghrita', or null
   const [morphTargetDictionary, setMorphTargetDictionary] = useState(null) // Store correct dictionary
+  const [currentEmotion, setCurrentEmotion] = useState('neutral') // happy, thoughtful, sad, excited, surprised, amused
+  const [convState, setConvState] = useState('idle') // idle, listening, thinking, speaking
   const getAmplitudeRef = useRef(() => 0) // default returns 0
 
   const setGetAmplitude = useCallback((fn) => {
@@ -33,6 +35,10 @@ export function LipSyncProvider({ children }) {
         setMorphTargetDictionary,
         getAmplitude,
         setGetAmplitude,
+        currentEmotion,
+        setCurrentEmotion,
+        convState,
+        setConvState,
       }}
     >
       {children}

@@ -26,7 +26,7 @@ function AppContent() {
   const [sceneReady, setSceneReady] = useState(false)
   const [textInput, setTextInput] = useState('')
 
-  const { setAudioElement, setLipSyncData, setIsProcessing, setAnimationType, setGetAmplitude } = useLipSyncContext()
+  const { setAudioElement, setLipSyncData, setIsProcessing, setAnimationType, setGetAmplitude, setCurrentEmotion, setConvState: setContextConvState } = useLipSyncContext()
   const analyserRef = useRef(null)
 
   // VAD refs
@@ -41,10 +41,20 @@ function AppContent() {
   const convStateRef = useRef(STATE.IDLE)
   const audioElementRef = useRef(null)
 
-  // Keep ref in sync with state
+  // Keep ref in sync with state, and sync to context for Avatar
   useEffect(() => {
     convStateRef.current = convState
+    setContextConvState(convState)
   }, [convState])
+
+  // Parse emotion tag from response text: "[happy] Hello!" -> { emotion: "happy", text: "Hello!" }
+  function parseEmotionTag(text) {
+    const match = text.match(/^\[(happy|thoughtful|sad|excited|surprised|amused)\]\s*/i)
+    if (match) {
+      return { emotion: match[1].toLowerCase(), text: text.slice(match[0].length) }
+    }
+    return { emotion: 'neutral', text }
+  }
 
   // Mark scene as ready after a brief delay for GLB loading
   useEffect(() => {
@@ -254,14 +264,17 @@ function AppContent() {
       })
 
       if (!responseText || !responseText.trim()) {
-        responseText = "I'm sorry, I couldn't process that."
+        responseText = "[thoughtful] I'm sorry, I couldn't quite understand that."
       }
 
-      setAnswerText(responseText)
+      // Parse emotion tag and set it for the avatar
+      const { emotion, text: cleanText } = parseEmotionTag(responseText)
+      setCurrentEmotion(emotion)
+      setAnswerText(cleanText)
 
-      // TTS + lip sync
+      // TTS + lip sync (use clean text without emotion tag)
       setConvState(STATE.SPEAKING)
-      await generateAndPlaySpeech(responseText)
+      await generateAndPlaySpeech(cleanText)
 
       // When audio ends, resume listening
       if (audioElementRef.current) {
@@ -416,6 +429,7 @@ function AppContent() {
         audioElementRef.current.pause()
         audioElementRef.current = null
       }
+      setCurrentEmotion('neutral')
       setConvState(STATE.IDLE)
       return
     }
@@ -466,15 +480,15 @@ function AppContent() {
       })
 
       if (!responseText || !responseText.trim()) {
-        responseText = "I'm sorry, I couldn't process that."
+        responseText = "[thoughtful] I'm sorry, I couldn't quite understand that."
       }
 
-      setAnswerText(responseText)
+      const { emotion, text: cleanText } = parseEmotionTag(responseText)
+      setCurrentEmotion(emotion)
+      setAnswerText(cleanText)
       setConvState(STATE.SPEAKING)
 
-      // Override the ended handler to return to previous state
-      const prevEnded = audioElementRef.current
-      await generateAndPlaySpeech(responseText)
+      await generateAndPlaySpeech(cleanText)
 
       // After speech ends, if VAD was active resume listening, otherwise go idle
       if (audioElementRef.current) {
@@ -531,20 +545,20 @@ function AppContent() {
       {/* 3D AVATAR CANVAS */}
       <div className="avatar-section">
         <Canvas
-          camera={{ position: [0, 1.5, 4], fov: 42 }}
+          camera={{ position: [0, 2.2, 7], fov: 45 }}
           shadows='soft'
           gl={{ antialias: true }}
           style={{ background: '#d4c8a8' }}
         >
-          <fog attach="fog" args={['#e0d8c0', 10, 25]} />
+          <fog attach="fog" args={['#e0d8c0', 14, 35]} />
           <VictorianEnvironment />
           <Avatar />
           <OrbitControls
-            minDistance={1.5}
-            maxDistance={8}
+            minDistance={2}
+            maxDistance={12}
             minPolarAngle={Math.PI / 6}
             maxPolarAngle={Math.PI / 2.2}
-            target={[0, 1, 0]}
+            target={[0, 1.2, 0]}
           />
         </Canvas>
       </div>
