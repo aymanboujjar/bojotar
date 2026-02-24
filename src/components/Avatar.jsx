@@ -1,4 +1,4 @@
-import { useGLTF, useFBX } from '@react-three/drei'
+import { useGLTF } from '@react-three/drei'
 import { useEffect, useRef } from 'react'
 import { useLipSyncContext } from '../contexts/LipSyncContext'
 import { useFrame } from '@react-three/fiber'
@@ -6,15 +6,12 @@ import * as THREE from 'three'
 
 export default function Avatar() {
     const { scene, animations } = useGLTF('/models/avtarr.glb')
-    const walkFbx = useFBX('/models/animations/Walking.fbx')
-    const leftTurnFbx = useFBX('/models/animations/Left Turn.fbx')
-    const rightTurnFbx = useFBX('/models/animations/Right Turn.fbx')
 
     const headRef = useRef()
     const groupRef = useRef()
     const mixerRef = useRef(null)
     const avatarSkeletonRef = useRef(null)
-    const { animationType, audioElement, lipSyncData, setMorphTargetDictionary, getAmplitude, currentEmotion, convState } = useLipSyncContext()
+    const { audioElement, lipSyncData, setMorphTargetDictionary, getAmplitude, currentEmotion, convState } = useLipSyncContext()
 
     // Facial expression refs
     const nextBlinkTimeRef = useRef(0)
@@ -53,30 +50,7 @@ export default function Avatar() {
     // Track current cue index for binary search optimization
     const lastCueIndexRef = useRef(0)
 
-    // ===== WANDER SYSTEM REFS =====
     const idleActionRef = useRef(null)
-    const walkActionRef = useRef(null)
-    const turnLeftActionRef = useRef(null)
-    const turnRightActionRef = useRef(null)
-    const walkWeightRef = useRef(0) // 0=idle, 1=walk
-    const walkWeightTargetRef = useRef(0)
-    const turnWeightRef = useRef(0)
-    const turnWeightTargetRef = useRef(0)
-    const walkTimerRef = useRef(0) // caps how long a walk lasts
-    const turnTimerRef = useRef(0) // elapsed time during turn animation
-    const turnDurationRef = useRef(1) // duration of current turn clip
-    const turnDirectionRef = useRef(null) // 'left' | 'right' when in TURNING
-
-    // Wander state: IDLE_STANDING | TURNING | WALKING | STOPPING | CONVERSATION | RESUME_PAUSE
-    const wanderStateRef = useRef('IDLE_STANDING')
-    const wanderTimerRef = useRef(3 + Math.random() * 5)
-    const wanderTargetRef = useRef({ x: 0, z: 0 })
-    const facingAngleRef = useRef(Math.PI) // facing camera initially
-
-    // Walkable area — center is fully open (no furniture)
-    // Room at 1.5x: walls X=±7.5, back wall Z=-6, bookshelves on walls only
-    // Keep avatar within the rug / open floor area
-    const WALK_BOUNDS = { xMin: -3.5, xMax: 3.5, zMin: -3.5, zMax: 3.5 }
 
     useEffect(() => {
         const meshesWithMorphs = []
@@ -180,47 +154,7 @@ export default function Avatar() {
             idleAction.play()
             idleActionRef.current = idleAction
         }
-
-        // Strip any position tracks so the avatar stays at group position (no sinking)
-        const stripPositionTracks = (clip) => {
-            const kept = clip.tracks.filter(track => !track.name.includes('.position'))
-            return kept.length < clip.tracks.length
-                ? new THREE.AnimationClip(clip.name, clip.duration, kept)
-                : clip
-        }
-
-        // Load FBX walk animation onto the same mixer
-        if (walkFbx.animations && walkFbx.animations.length > 0) {
-            let walkClip = filterMorphTracks(walkFbx.animations[0])
-            walkClip = stripPositionTracks(walkClip)
-
-            const walkAction = mixerRef.current.clipAction(walkClip)
-            walkAction.setLoop(THREE.LoopRepeat, Infinity)
-            walkAction.setEffectiveWeight(0)
-            walkAction.play()
-            walkActionRef.current = walkAction
-        }
-
-        // Load turn-left and turn-right FBX animations (play once, no loop)
-        const setupTurnClip = (fbx, actionRef) => {
-            if (!fbx.animations || fbx.animations.length === 0) return 0
-            let clip = filterMorphTracks(fbx.animations[0])
-            clip = stripPositionTracks(clip)
-            const action = mixerRef.current.clipAction(clip)
-            action.setLoop(THREE.LoopOnce)
-            action.clampWhenFinished = true
-            action.setEffectiveWeight(0)
-            actionRef.current = action
-            return clip.duration
-        }
-        if (leftTurnFbx.animations?.length) {
-            turnDurationRef.current = setupTurnClip(leftTurnFbx, turnLeftActionRef)
-        }
-        if (rightTurnFbx.animations?.length) {
-            const d = setupTurnClip(rightTurnFbx, turnRightActionRef)
-            if (d > 0) turnDurationRef.current = d
-        }
-    }, [scene, walkFbx, leftTurnFbx, rightTurnFbx])
+    }, [scene])
 
     // Find bones for micro-motion
     useEffect(() => {
@@ -260,178 +194,9 @@ export default function Avatar() {
             mixerRef.current.update(Math.min(delta, 0.1))
         }
 
-        // ===== WANDER STATE MACHINE + MOVEMENT =====
-        const clampDelta = Math.min(delta, 0.1)
-        const WALK_SPEED = 0.55
-        const ROTATION_SPEED = 2.5
-        const BLEND_SPEED = 2.5 // slower blend for smooth crossfade (no jarring loop restart)
-        const MAX_WALK_TIME = 2.5 + Math.sin(walkTimerRef.current * 7) * 0.5 // 2-3 seconds
-        const WALK_DIST = 1.4 // ~1.4 units = ~2.5s at 0.55 speed
-
-        // Pick a nearby target — moderate distance from current position
-        const pickNearbyTarget = () => {
-            const pos = groupRef.current?.position
-            if (!pos) return { x: 0, z: 1 }
-            const angle = Math.random() * Math.PI * 2
-            const dist = WALK_DIST + Math.random() * 0.5
-            let tx = pos.x + Math.sin(angle) * dist
-            let tz = pos.z + Math.cos(angle) * dist
-            // Clamp to walkable bounds
-            tx = Math.max(WALK_BOUNDS.xMin, Math.min(WALK_BOUNDS.xMax, tx))
-            tz = Math.max(WALK_BOUNDS.zMin, Math.min(WALK_BOUNDS.zMax, tz))
-            return { x: tx, z: tz }
-        }
-
-        const inConversation = convState !== 'idle'
-        const ws = wanderStateRef.current
-
-        // Transition to conversation states
-        if (inConversation && ws !== 'CONVERSATION' && ws !== 'STOPPING') {
-            wanderStateRef.current = 'STOPPING'
-            walkWeightTargetRef.current = 0
-        }
-
-        // Transition out of conversation
-        if (!inConversation && ws === 'CONVERSATION') {
-            wanderStateRef.current = 'RESUME_PAUSE'
-            wanderTimerRef.current = 2 + Math.random() * 2
-        }
-
-        // State machine tick
-        switch (wanderStateRef.current) {
-            case 'IDLE_STANDING': {
-                walkWeightTargetRef.current = 0
-                turnWeightTargetRef.current = 0
-                wanderTimerRef.current -= clampDelta
-                if (wanderTimerRef.current <= 0) {
-                    wanderTargetRef.current = pickNearbyTarget()
-                    wanderStateRef.current = 'TURNING'
-                }
-                break
-            }
-            case 'TURNING': {
-                walkWeightTargetRef.current = 0
-                turnWeightTargetRef.current = 1
-                const pos = groupRef.current?.position
-                if (!pos) break
-                const dx = wanderTargetRef.current.x - pos.x
-                const dz = wanderTargetRef.current.z - pos.z
-                const targetAngle = Math.atan2(dx, dz)
-
-                let angleDiff = targetAngle - facingAngleRef.current
-                while (angleDiff > Math.PI) angleDiff -= Math.PI * 2
-                while (angleDiff < -Math.PI) angleDiff += Math.PI * 2
-
-                // Start turn animation on first frame of TURNING
-                if (turnDirectionRef.current === null) {
-                    turnDirectionRef.current = angleDiff > 0 ? 'left' : 'right'
-                    const turnAction = turnDirectionRef.current === 'left' ? turnLeftActionRef.current : turnRightActionRef.current
-                    if (turnAction) {
-                        turnAction.reset()
-                        turnAction.play()
-                    }
-                    turnTimerRef.current = 0
-                }
-
-                turnTimerRef.current += clampDelta
-
-                if (turnTimerRef.current >= turnDurationRef.current) {
-                    facingAngleRef.current = targetAngle
-                    wanderStateRef.current = 'WALKING'
-                    walkWeightTargetRef.current = 1
-                    walkTimerRef.current = 0
-                    turnWeightTargetRef.current = 0
-                    turnDirectionRef.current = null
-                } else {
-                    facingAngleRef.current += Math.sign(angleDiff) * Math.min(ROTATION_SPEED * clampDelta, Math.abs(angleDiff))
-                }
-                break
-            }
-            case 'WALKING': {
-                walkWeightTargetRef.current = 1
-                turnWeightTargetRef.current = 0
-                walkTimerRef.current += clampDelta
-                const pos = groupRef.current?.position
-                if (!pos) break
-                const dx = wanderTargetRef.current.x - pos.x
-                const dz = wanderTargetRef.current.z - pos.z
-                const dist = Math.sqrt(dx * dx + dz * dz)
-
-                // Stop after 2-3 seconds OR arrival
-                if (dist < 0.15 || walkTimerRef.current >= MAX_WALK_TIME) {
-                    wanderStateRef.current = 'SLOWING'
-                    walkWeightTargetRef.current = 0
-                } else {
-                    // Move forward in facing direction
-                    const moveX = Math.sin(facingAngleRef.current) * WALK_SPEED * clampDelta
-                    const moveZ = Math.cos(facingAngleRef.current) * WALK_SPEED * clampDelta
-                    pos.x += moveX
-                    pos.z += moveZ
-                }
-                break
-            }
-            case 'SLOWING': {
-                walkWeightTargetRef.current = 0
-                turnWeightTargetRef.current = 0
-                if (walkWeightRef.current < 0.08) {
-                    wanderStateRef.current = 'IDLE_STANDING'
-                    wanderTimerRef.current = 4 + Math.random() * 6
-                }
-                break
-            }
-            case 'STOPPING': {
-                walkWeightTargetRef.current = 0
-                turnWeightTargetRef.current = 0
-                if (walkWeightRef.current < 0.05) {
-                    wanderStateRef.current = 'CONVERSATION'
-                }
-                break
-            }
-            case 'CONVERSATION': {
-                walkWeightTargetRef.current = 0
-                turnWeightTargetRef.current = 0
-                // Face the camera
-                const pos = groupRef.current?.position
-                if (pos) {
-                    const camPos = state.camera.position
-                    const dx = camPos.x - pos.x
-                    const dz = camPos.z - pos.z
-                    const targetAngle = Math.atan2(dx, dz)
-                    let angleDiff = targetAngle - facingAngleRef.current
-                    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2
-                    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2
-                    facingAngleRef.current += Math.sign(angleDiff) * Math.min(ROTATION_SPEED * clampDelta, Math.abs(angleDiff))
-                }
-                break
-            }
-            case 'RESUME_PAUSE': {
-                walkWeightTargetRef.current = 0
-                turnWeightTargetRef.current = 0
-                wanderTimerRef.current -= clampDelta
-                if (wanderTimerRef.current <= 0) {
-                    wanderStateRef.current = 'IDLE_STANDING'
-                    wanderTimerRef.current = 2 + Math.random() * 3
-                }
-                break
-            }
-        }
-
-        // Blend animation weights: idle ↔ walk ↔ turn left/right
-        walkWeightRef.current += (walkWeightTargetRef.current - walkWeightRef.current) * Math.min(1, BLEND_SPEED * clampDelta)
-        turnWeightRef.current += (turnWeightTargetRef.current - turnWeightRef.current) * Math.min(1, BLEND_SPEED * clampDelta)
-        const w = walkWeightRef.current
-        const t = turnWeightRef.current
-
-        // Apply rotation to group; keep Y at default so only x/z change when turning/walking
         if (groupRef.current) {
-            groupRef.current.rotation.y = facingAngleRef.current
             groupRef.current.position.y = -0.75
         }
-        const turnDir = turnDirectionRef.current
-        if (idleActionRef.current) idleActionRef.current.setEffectiveWeight(1 - w - t)
-        if (walkActionRef.current) walkActionRef.current.setEffectiveWeight(w)
-        if (turnLeftActionRef.current) turnLeftActionRef.current.setEffectiveWeight(turnDir === 'left' ? t : 0)
-        if (turnRightActionRef.current) turnRightActionRef.current.setEffectiveWeight(turnDir === 'right' ? t : 0)
 
         const elapsedTime = state.clock.elapsedTime
         const isAudioPlaying = audioElement && !audioElement.paused && !audioElement.ended
@@ -987,7 +752,7 @@ export default function Avatar() {
     })
 
     return (
-        <group ref={groupRef} position={[0, -0.75, 1]}>
+        <group ref={groupRef} position={[0, -0.75, 1]} rotation={[0, 0, 0]}>
             <primitive
                 object={scene}
                 scale={1.5}
@@ -998,4 +763,3 @@ export default function Avatar() {
 }
 
 useGLTF.preload('/models/avtarr.glb')
-useFBX.preload('/models/animations/Walking.fbx')
